@@ -5,6 +5,7 @@ This can be run independently of the FastAPI server.
 import os
 import sys
 from dotenv import load_dotenv
+import logging
 
 # Add parent directory to path to import services
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -13,6 +14,14 @@ from services.langchain_service import LangChainService
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__) # Create a logger for this module
 
 
 def main():
@@ -40,16 +49,15 @@ def main():
     
     # Example queries
     queries = [
-        "What is FastAPI?",
-        "What are the key features of LangChain?",
-        "How does RAG work?",
-        "What models does OpenAI offer?"
+        "운영체제 학습을 위해 내용 자세히 알려줘.",
     ]
     
     for question in queries:
         print(f"Question: {question}")
         result = service.query(question)
+
         print(f"Answer: {result['answer']}")
+        print(result['source_documents'][2])
         print(f"Sources: {len(result['source_documents'])} documents retrieved")
         print("-" * 50 + "\n")
 
