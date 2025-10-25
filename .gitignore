@@ -47,3 +47,7 @@ chroma_db/
 .pytest_cache/
 .coverage
 htmlcov/
+
+
+# Virtual Environments
+myenv
