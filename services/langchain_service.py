@@ -3,6 +3,7 @@ LangChain service for RAG system.
 """
 import os
 import re
+import json
 import logging
 from typing import Optional, Dict, Any, List
 
@@ -28,33 +29,34 @@ class LangChainService:
         
         # 커스텀 프롬프트 설정
         self.prompt = ChatPromptTemplate.from_template("""
-            당신은 친절한 AI 어시스턴트입니다.
+            당신은 정확한 답변을 하는 AI 어시스턴트입니다.
 
             아래 문서를 참고하여 질문에 답변하세요.
             문서에 관련 정보가 있으면 문서 기반으로 답변하고, 외부 출처(검색 등)를 참고하지 마세요.
-            문서 내용이 있다면, 지식 카드를 만들어 답변에 포함해야 합니다.
-            답변에는 답변(answer), 요약(summary), 출처 URL(source) 섹션이 JSON 형식으로 포함되어야 합니다.
-            지식 카드의 summary와 answer 부분에는 최소 약 40글자의 내용과 필요에 따라 수식이 포함되어야합니다.
-            지식카드의 출처가 최대한 겹치지 않게 문서 내용을 분류하고 분리하여 정리해야합니다. 지식카드의 개수는 최소 1개, 최대 3개가 될 수 있습니다.
+            반드시 순수한 JSON만 출력하세요. 마크다운 코드 블록(``` 또는 ```json)을 사용하지 마세요.
 
-            반드시 다음 JSON 형식으로만 답변하세요:
+            다음 JSON 형식으로만 답변하세요:
             {{{{
-                "answer": "여기에 전체 답변이 들어갑니다.",
+                "answer": "여기에 전체 답변, 충분히 디테일하게.",
                 "cards": [
                     {{{{
-                        "summary": "첫 번째 출처의 내용 요약 (최소 40글자)",
-                        "source": "첫 번째 문서에 포함된 정확한 출처 URL"
+                        "summary": "첫 번째 출처의 내용 요약",
+                        "source": "첫 번째 문서의 정확한 출처 URL"
                     }}}},
                     {{{{
-                        "summary": "두 번째 출처의 내용 요약 (최소 40글자)",
-                        "source": "두 번째 문서에 포함된 정확한 출처 URL (첫 번째와 달라야 함)"
+                        "summary": "두 번째 출처의 내용 요약",
+                        "source": "두 번째 문서의 정확한 출처 URL"
                     }}}},
                     {{{{
-                        "summary": "세 번째 출처의 내용 요약 (최소 40글자)",
-                        "source": "세 번째 문서에 포함된 정확한 출처 URL (위 두 개와 달라야 함)"
+                        "summary": "세 번째 출처의 내용 요약",
+                        "source": "세 번째 문서의 정확한 출처 URL"
                     }}}}
                 ]
             }}}}
+
+            규칙:
+            - 지식 카드는 문서 기반으로 작성해야 합니다. 문서와 관련 없는 내용은 포함하지 마세요.
+            - 각 카드의 출처(source)는 서로 달라야 함
 
             문서:
             {context}
@@ -62,9 +64,8 @@ class LangChainService:
             대화 기록:
             {chat_history}
 
-            현재 질문: {question}
-
-            JSON 응답:
+            현재 질문:
+            {question}
         """)
     
     def extract_metadata_from_text(self, text: str, file_path: str) -> Dict[str, Any]:
@@ -89,17 +90,6 @@ class LangChainService:
         source_match = re.search(source_pattern, text)
         if source_match:
             metadata["source_url"] = source_match.group(1)
-        
-        # 제목 추출 (첫 번째 줄 또는 파일명)
-        lines = text.split('\n')
-        if lines:
-            first_line = lines[0].strip()
-            if first_line and len(first_line) < 200:  # 제목은 짧을 것
-                metadata["title"] = first_line
-        
-        # 제목이 없으면 파일명 사용
-        if not metadata["title"]:
-            metadata["title"] = os.path.basename(file_path).replace('.txt', '')
         
         return metadata
     
@@ -193,11 +183,10 @@ class LangChainService:
             
             # Create retriever with MMR
             self.retriever = self.vector_store.as_retriever(
-                search_type="mmr",
+                search_type="similarity_score_threshold",
                 search_kwargs={
                     "k": 5,
-                    "fetch_k": 15,
-                    "lambda_mult": 0.5
+                    "score_threshold": 0.9  # 임계값
                 }
             )
             
@@ -270,10 +259,39 @@ class LangChainService:
         # Get answer from RAG chain
         answer = rag_chain.invoke({})
         
-        return {
-            "answer": answer,
-        }
+        # JSON 파싱 및 에러 처리
+        try:
+            # JSON 파싱 시도
+            parsed_answer = json.loads(answer)
+            
+            # 필수 필드 검증
+            if "answer" not in parsed_answer:
+                logger.error("Response missing 'answer' field")
+                parsed_answer["answer"] = "답변을 찾을 수 없습니다."
+            
+            if "cards" not in parsed_answer:
+                parsed_answer["cards"] = []
+            
+            return parsed_answer
+        
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response as JSON: {e}")
+            logger.error(f"Raw response (first 1000 chars): {answer[:1000]}")
+            
+            # JSON이 아닌 일반 텍스트로 응답한 경우 처리
+            return {
+                "answer": answer,
+                "cards": []
+            }
+        except Exception as e:
+            logger.error(f"Unexpected error in query: {e}")
+            return {
+                "answer": "오류가 발생했습니다.",
+                "cards": []
+            }
     
+            
+
     def is_initialized(self) -> bool:
         """Check if the RAG system is initialized."""
         return self.retriever is not None and self.llm is not None
