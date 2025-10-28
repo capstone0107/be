@@ -6,12 +6,11 @@ from typing import List, Optional
 
 
 class QueryRequest(BaseModel):
-    question: str
+    question: List[str]
     
 
 class QueryResponse(BaseModel):
     answer: str
-    source_documents: Optional[List[str]] = None
 
 
 class EmbeddingRequest(BaseModel):
