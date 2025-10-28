@@ -49,17 +49,13 @@ def main():
     
     # Example queries
     queries = [
-        "운영체제 학습을 위해 내용 자세히 알려줘.",
+        ["운영체제 학습을 위해 운영체제에 대해 자세히 알고싶어. 역사나 리얼타임 운영체제 등도 포함해서."],
     ]
     
     for question in queries:
         print(f"Question: {question}")
         result = service.query(question)
-
         print(f"Answer: {result['answer']}")
-        print(result['source_documents'][2])
-        print(f"Sources: {len(result['source_documents'])} documents retrieved")
-        print("-" * 50 + "\n")
 
 
 if __name__ == "__main__":

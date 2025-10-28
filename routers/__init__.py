@@ -1,4 +1,4 @@
 """Routers package."""
-from routers import chat, query, admin
+from routers import query, admin
 
-__all__ = ["chat", "query", "admin"]
+__all__ = ["query", "admin"]

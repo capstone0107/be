@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from routers import chat, query, admin
+from routers import query, admin
 from services import langchain_service
 
 # Configure logging
@@ -36,7 +36,6 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(chat.router)
 app.include_router(query.router)
 app.include_router(admin.router)
 
