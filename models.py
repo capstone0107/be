@@ -8,10 +8,13 @@ from typing import List, Optional
 class QueryRequest(BaseModel):
     question: List[str]
     
+class KnowledgeCard(BaseModel):
+    summary: str
+    source: str
 
 class QueryResponse(BaseModel):
     answer: str
-
+    cards: List[KnowledgeCard] = []
 
 class EmbeddingRequest(BaseModel):
     text: str
@@ -20,15 +23,6 @@ class EmbeddingRequest(BaseModel):
 class EmbeddingResponse(BaseModel):
     embedding: List[float]
     dimension: int
-
-
-class ChatRequest(BaseModel):
-    message: str
-    
-
-class ChatResponse(BaseModel):
-    response: str
-
 
 class ReloadResponse(BaseModel):
     status: str

@@ -26,7 +26,8 @@ async def query_documents(request: QueryRequest):
         result = langchain_service.query(request.question)
         
         return QueryResponse(
-            answer=result["answer"]
+            answer=result["answer"],
+            cards=result.get("cards", [])
         )
     except ValueError as e:
         logger.error(f"RAG system error: {e}")
