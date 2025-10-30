@@ -1,13 +1,10 @@
-"""
-FastAPI application with LangChain and OpenAI integration.
-"""
 import os
 import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from routers import query, admin
+from routers import query, admin, analysis
 from services import langchain_service
 
 # Configure logging
@@ -38,6 +35,7 @@ app.add_middleware(
 # Include routers
 app.include_router(query.router)
 app.include_router(admin.router)
+app.include_router(analysis.router)
 
 @app.on_event("startup")
 async def startup_event():
@@ -62,7 +60,9 @@ async def root():
             "chat": "/api/chat",
             "query": "/api/query",
             "embed": "/api/embed",
-            "reload": "/api/reload"
+            "reload": "/api/reload",
+            "analyze": "/api/analyze",
+            "analysis_status": "/api/analysis/status"
         }
     }
 
