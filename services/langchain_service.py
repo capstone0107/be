@@ -1,5 +1,5 @@
 """
-LangChain service for RAG system.
+LangChain service for RAG system with Google Search integration.
 """
 import os
 import re
@@ -16,56 +16,92 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain.schema import Document
 
+from services.google_search_service import google_search_service
+
 logger = logging.getLogger(__name__)
 
 
 class LangChainService:
-    """Service class for managing LangChain RAG operations."""
+    """Service class for managing LangChain RAG operations with Google Search."""
     
     def __init__(self):
         self.vector_store: Optional[Chroma] = None
         self.retriever = None
         self.llm = None
+        self.search_query_llm = None  # 검색 쿼리 생성용 별도 LLM
         
-        # 커스텀 프롬프트 설정
+        # 커스텀 프롬프트 설정 (Google Search 결과 포함)
         self.prompt = ChatPromptTemplate.from_template("""
             당신은 정확한 답변을 하는 AI 어시스턴트입니다.
 
-            아래 문서를 참고하여 질문에 답변하세요.
-            문서에 관련 정보가 있으면 문서 기반으로 답변하고, 외부 출처(검색 등)를 참고하지 마세요.
-            반드시 순수한 JSON만 출력하세요. 마크다운 코드 블록(``` 또는 ```json)을 사용하지 마세요.
+            아래 내부 문서와 웹 검색 결과를 참고하여 질문에 답변하세요.
+            
+            ### 규칙:
+            1. 내부 문서에 관련 정보가 충분하면 내부 문서를 우선 사용하세요.
+            2. 내부 문서가 불충분하거나 최신 정보가 필요하면 웹 검색 결과를 활용하세요.
+            3. 출처를 명확히 구분하세요 (내부 문서 vs 웹 검색).
+            4. 반드시 순수한 JSON만 출력하세요. 마크다운 코드 블록(``` 또는 ```json)을 사용하지 마세요.
 
+            ### 내부 문서:
+            {context}
+            
+            ### 웹 검색 결과:
+            {search_results}
+
+            ### 대화 기록:
+            {chat_history}
+
+            ### 현재 질문:
+            {question}
+            
             다음 JSON 형식으로만 답변하세요:
             {{{{
                 "answer": "여기에 전체 답변, 충분히 디테일하게.",
                 "cards": [
                     {{{{
                         "summary": "첫 번째 출처의 내용 요약",
-                        "source": "첫 번째 문서의 정확한 출처 URL"
+                        "source": "첫 번째 문서의 정확한 출처 URL 또는 파일명"
                     }}}},
                     {{{{
                         "summary": "두 번째 출처의 내용 요약",
-                        "source": "두 번째 문서의 정확한 출처 URL"
+                        "source": "두 번째 문서의 정확한 출처 URL 또는 파일명"
                     }}}},
                     {{{{
                         "summary": "세 번째 출처의 내용 요약",
-                        "source": "세 번째 문서의 정확한 출처 URL"
+                        "source": "세 번째 문서의 정확한 출처 URL 또는 파일명"
                     }}}}
                 ]
             }}}}
 
-            규칙:
-            - 지식 카드는 문서 기반으로 작성해야 합니다. 문서와 관련 없는 내용은 포함하지 마세요.
+            중요:
+            - 지식 카드는 실제 사용한 출처 기반으로만 작성
             - 각 카드의 출처(source)는 서로 달라야 함
+            - 내부 문서는 파일명, 웹 검색은 URL로 표시
+        """)
+        
+        # 검색 쿼리 최적화 프롬프트
+        self.query_optimization_prompt = ChatPromptTemplate.from_template("""
+            당신은 검색 쿼리 최적화 전문가입니다.
+            사용자의 질문을 구글 검색에 최적화된 검색어로 변환하세요.
 
-            문서:
-            {context}
+            ### 규칙:
+            1. 핵심 키워드만 추출 (3-5개 단어)
+            2. 불필요한 조사, 어미 제거
+            3. 영어 기술 용어는 영어로 유지
+            4. 검색 의도를 명확히 반영
+            5. 너무 일반적이거나 모호한 단어 제거
 
-            대화 기록:
-            {chat_history}
+            ### 예시:
+            - 질문: "실시간 운영체제에서 우선순위 스케줄링이 왜 중요해?"
+            - 검색어: "실시간 운영체제 우선순위 스케줄링 중요성"
+            
+            - 질문: "What are the benefits of using Docker?"
+            - 검색어: "Docker benefits advantages"
 
-            현재 질문:
+            ### 사용자 질문:
             {question}
+
+            ### 최적화된 검색어만 출력하세요 (다른 설명 없이):
         """)
     
     def extract_metadata_from_text(self, text: str, file_path: str) -> Dict[str, Any]:
@@ -181,7 +217,7 @@ class LangChainService:
                     persist_directory="./chroma_db"
                 )
             
-            # Create retriever with MMR
+            # Create retriever with similarity score threshold
             self.retriever = self.vector_store.as_retriever(
                 search_type="similarity_score_threshold",
                 search_kwargs={
@@ -190,24 +226,104 @@ class LangChainService:
                 }
             )
             
-            # Create LLM
+            # Create main LLM for answer generation
             qa_model = os.getenv("QA_MODEL", "gpt-3.5-turbo")
             self.llm = ChatOpenAI(model_name=qa_model, temperature=0)
             
-            logger.info("RAG system initialized successfully!")
+            # Create separate LLM for search query optimization (lighter model)
+            self.search_query_llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
+            
+            logger.info("RAG system initialized successfully with Google Search support!")
         except Exception as e:
             logger.error(f"Error initializing RAG system: {e}")
             raise
     
+    def generate_search_query(self, question: str, chat_history: str = "") -> Optional[str]:
+        """
+        Generate optimized search query from user question.
+        
+        Args:
+            question: User's question
+            chat_history: Optional conversation context
+            
+        Returns:
+            Optimized search query or None if generation fails
+        """
+        if not self.search_query_llm:
+            logger.warning("Search query LLM not initialized")
+            return None
+        
+        try:
+            # Create query optimization chain
+            query_chain = (
+                self.query_optimization_prompt
+                | self.search_query_llm
+                | StrOutputParser()
+            )
+            
+            # Generate optimized query
+            optimized_query = query_chain.invoke({"question": question})
+            optimized_query = optimized_query.strip()
+            
+            logger.info(f"Original question: {question}")
+            logger.info(f"Optimized search query: {optimized_query}")
+            
+            return optimized_query
+            
+        except Exception as e:
+            logger.error(f"Error generating search query: {e}")
+            return None
+    
+    def perform_web_search(self, query: str, num_results: int = 3) -> str:
+        """
+        Perform web search using Google Search service.
+        
+        Args:
+            query: Search query
+            num_results: Number of results to fetch
+            
+        Returns:
+            Formatted search results as string
+        """
+        # Check if Google Search is available
+        if not google_search_service.is_available():
+            logger.warning("Google Search service not available")
+            return "웹 검색 서비스를 사용할 수 없습니다."
+        
+        try:
+            # Perform search
+            results = google_search_service.search(query, num_results)
+            
+            if not results:
+                logger.info(f"No search results found for query: {query}")
+                return "검색 결과가 없습니다."
+            
+            # Format results
+            formatted_results = []
+            for i, result in enumerate(results, 1):
+                formatted_results.append(
+                    f"=== 웹 검색 결과 {i} ===\n"
+                    f"제목: {result.title}\n"
+                    f"출처: {result.link}\n"
+                    f"요약: {result.snippet}\n"
+                )
+            
+            logger.info(f"Found {len(results)} web search results")
+            return "\n\n".join(formatted_results)
+            
+        except Exception as e:
+            logger.error(f"Error performing web search: {e}")
+            return "웹 검색 중 오류가 발생했습니다."
+    
     def query(self, question: List[str]) -> Dict[str, Any]:
         """
-        Query the RAG system with a question.
+        Query the RAG system with Google Search support.
         
         Args:
             question: List of questions (conversation history)
             
         Returns:
-            Dictionary with answer
+            Dictionary with answer and cards
             
         Raises:
             ValueError: If RAG system is not initialized
@@ -225,15 +341,35 @@ class LangChainService:
                 role = "사용자" if i % 2 == 1 else "AI"
                 chat_history += f"{role}: {q}\n"
         
+        # Step 1: 내부 문서 검색
+        logger.info("Step 1: Searching internal documents...")
+        source_documents = self.retriever.invoke(latest_question)
+        logger.info(f"Found {len(source_documents)} internal documents")
+        
+        # Step 2: 검색 쿼리 생성
+        logger.info("Step 2: Generating optimized search query...")
+        search_query = self.generate_search_query(latest_question, chat_history)
+        
+        # Step 3: 웹 검색 수행 (검색 쿼리가 생성된 경우에만)
+        web_search_results = "웹 검색이 비활성화되었습니다."
+        if search_query:
+            logger.info("Step 3: Performing web search...")
+            web_search_results = self.perform_web_search(search_query, num_results=3)
+        else:
+            logger.info("Step 3: Skipping web search (query generation failed)")
+        
         # Helper function to format documents with metadata
         def format_docs(docs):
+            if not docs:
+                return "관련 내부 문서를 찾을 수 없습니다."
+            
             formatted = []
             for i, doc in enumerate(docs, 1):
                 source_url = doc.metadata.get('source_url', '출처없음')
                 title = doc.metadata.get('title', '제목없음')
                 
                 formatted.append(
-                    f"=== 문서 {i}: {title} ===\n"
+                    f"=== 내부 문서 {i}: {title} ===\n"
                     f"[출처: {source_url}]\n"
                     f"{doc.page_content}\n"
                     f"=== 문서 {i} 끝 ==="
@@ -241,13 +377,12 @@ class LangChainService:
             
             return "\n\n".join(formatted)
         
-        # 문서 검색
-        source_documents = self.retriever.invoke(latest_question)
-        
-        # Create RAG chain using LCEL
+        # Step 4: RAG chain 생성 (내부 문서 + 웹 검색 결과)
+        logger.info("Step 4: Creating RAG chain with internal + web search results...")
         rag_chain = (
             {
                 "context": lambda _: format_docs(source_documents),
+                "search_results": lambda _: web_search_results,
                 "chat_history": lambda _: chat_history,
                 "question": lambda _: latest_question
             }
@@ -256,7 +391,8 @@ class LangChainService:
             | StrOutputParser()
         )
         
-        # Get answer from RAG chain
+        # Step 5: 답변 생성
+        logger.info("Step 5: Generating answer...")
         answer = rag_chain.invoke({})
         
         # JSON 파싱 및 에러 처리
@@ -272,6 +408,7 @@ class LangChainService:
             if "cards" not in parsed_answer:
                 parsed_answer["cards"] = []
             
+            logger.info(f"Successfully generated answer with {len(parsed_answer.get('cards', []))} cards")
             return parsed_answer
         
         except json.JSONDecodeError as e:
@@ -290,8 +427,6 @@ class LangChainService:
                 "cards": []
             }
     
-            
-
     def is_initialized(self) -> bool:
         """Check if the RAG system is initialized."""
         return self.retriever is not None and self.llm is not None
