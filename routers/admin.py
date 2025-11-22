@@ -4,7 +4,7 @@ Admin router for system management operations.
 import logging
 from fastapi import APIRouter, HTTPException
 
-from models import ReloadResponse
+from api_models import ReloadResponse
 from services import langchain_service
 
 logger = logging.getLogger(__name__)
