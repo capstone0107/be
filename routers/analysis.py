@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from typing import Dict, Any, List
 
-from models import (
+from api_models import (
     AnalyzeConversationRequest,
     AnalyzeConversationResponse,
     MetacognitiveInsight,

@@ -4,7 +4,7 @@ Query router for RAG-based document querying.
 import logging
 from fastapi import APIRouter, HTTPException
 
-from models import QueryRequest, QueryResponse
+from api_models import QueryRequest, QueryResponse
 from services import langchain_service
 
 logger = logging.getLogger(__name__)
