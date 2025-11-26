@@ -50,6 +50,29 @@ class ExternalVerification(BaseModel):
     source: str  # URL to source
     follow_up_questions: List[str] = []
 
+class GraphNode(BaseModel):
+    """A node in the conversation graph."""
+    id: str
+    label: str
+    description: str  # The "brief sentence" explaining the node
+    category: Optional[str] = None # e.g., "Concept", "Problem", "Solution"
+    related_message_indices: List[int] = [] # To link back to chat
+    conversation_id: Optional[str] = None # For combined graphs (color coding)
+
+class GraphEdge(BaseModel):
+    """An edge connecting two nodes."""
+    source: str
+    target: str
+    label: str # e.g., "LEADS_TO", "SOLVES_PROBLEM"
+
+class GraphData(BaseModel):
+    """The complete graph structure."""
+    nodes: List[GraphNode]
+    edges: List[GraphEdge]
+
+class CombinedGraphRequest(BaseModel):
+    """Request to combine multiple existing graphs."""
+    graphs: List[GraphData]
 
 class AnalyzeConversationRequest(BaseModel):
     """Request to analyze a conversation."""
