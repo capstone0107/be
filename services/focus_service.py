@@ -1,5 +1,8 @@
 """
-Focus classification service.
+Focus classification service for conversation analysis.
+Simplified version aligned with frontend requirements.
+
+FIXED: Foreign key constraint error by adding db.flush() before inserting relationships
 """
 import json
 import os
@@ -7,328 +10,326 @@ import logging
 from typing import Dict, Any, List
 from datetime import datetime
 from openai import OpenAI
+from sqlalchemy.orm import Session
+
+from models.conversation_orm import Conversation, Message, Focus, conversation_focus
+from database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
 
 CLASSIFICATION_PROMPT = """
-당신은 대화 로그를 분석하여 구조화된 데이터로 변환하는 'Conversation Structuring Engine'입니다.
+당신은 대화 로그를 분석하여 주제별 Focus로 분류하는 AI 어시스턴트입니다.
 
 [입력 정보]
-아래 데이터는 ID가 포함된 JSON 형식의 대화 로그입니다:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{conversation_json}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+대화 ID: {conversation_id}
+현재 시각: {current_timestamp}
 
-[지시 사항]
-제공된 대화를 분석하여 아래 규칙에 따라 JSON 객체를 생성하십시오.
+대화 메시지:
+{conversation_text}
 
-Rule 0: **ID 무결성 유지 (가장 중요)**
-   - 입력된 각 메시지의 `id` 값을 절대 변경하거나 새로 생성하지 마십시오.
-   - `focuses` 배열의 `messageIds`에는 반드시 **[입력 정보]에 존재하는 `id` 값**만 사용해야 합니다.
+[작업 지시]
+1. 대화 내용을 분석하여 의미적으로 연관된 메시지들을 그룹화하세요.
+2. 각 그룹에 대해 Focus를 생성하세요.
+3. 각 Focus는 2-5개의 메시지를 포함해야 합니다.
+4. 전체 대화를 2-5개의 Focus로 분류하는 것을 목표로 하세요.
 
-Rule 1: **메타데이터 생성**
-   - 대화 전체를 관통하는 적절한 `title`을 생성하십시오.
-   - 출력의 `id`는 입력받은 conversation_id를 사용하십시오.
+[Focus 생성 규칙]
+- Focus 이름은 10-30자의 간결하고 명확한 제목으로 작성
+- questionTags는 해당 Focus의 핵심 키워드 2-3개
+- messageIds는 입력된 메시지의 순서 인덱스 (0부터 시작)
 
-Rule 2: **메시지 구조화**
-   - 입력된 메시지 목록을 그대로 `messages` 필드에 포함하되, 답변에 URL/참조가 있다면 `sources` 필드를 추출하여 추가하십시오.
+[메시지 ID 매핑]
+입력된 메시지의 순서를 기반으로 ID를 생성하세요:
+- 첫 번째 메시지 (index 0) → "msg-1"
+- 두 번째 메시지 (index 1) → "msg-2"
+- 세 번째 메시지 (index 2) → "msg-3"
+... 이런 식으로
 
-Rule 3: **Focus (주제) 클러스터링**
-   - 대화의 흐름을 분석하여 밀접하게 관련된 Q&A 세트들을 하나의 `focus`로 묶으십시오.
-   - `messageIds`: 해당 주제에 속하는 메시지들의 `id` 리스트.
-   - `questionTags`: 검색을 위한 핵심 키워드 2~3개.
-
-[출력 포맷]
-반드시 아래 JSON 스키마를 엄격히 따르십시오. (주석 제외)
+[출력 형식]
+반드시 순수한 JSON만 출력하세요. 마크다운 코드 블록을 사용하지 마세요.
 
 {{
-  "id": "{conversation_id}", 
-  "title": "대화 요약 제목",
-  "timestamp": "{current_timestamp}",
-  "messages": [
-    {{
-      "id": "입력받은_msg_id_그대로_사용",
-      "role": "user",
-      "content": "..."
-    }},
-    {{
-      "id": "입력받은_msg_id_그대로_사용",
-      "role": "assistant",
-      "content": "...",
-      "sources": [ 
-        {{ "title": "출처 제목", "url": "URL", "snippet": "발췌문" }}
-      ]
-    }}
-  ],
+  "conversation_summary": "대화 전체를 한 문장으로 요약",
   "focuses": [
     {{
-      "id": "focus-generated-uuid-1",
-      "name": "주제 그룹 명칭",
-      "messageIds": ["입력받은_msg_id_1", "입력받은_msg_id_2"],
-      "questionTags": ["태그1", "태그2"]
+      "id": "focus-unique-id-1",
+      "name": "첫 번째 Focus 이름",
+      "messageIds": ["msg-1", "msg-2", "msg-3"],
+      "questionTags": ["키워드1", "키워드2"]
+    }},
+    {{
+      "id": "focus-unique-id-2",
+      "name": "두 번째 Focus 이름",
+      "messageIds": ["msg-4", "msg-5"],
+      "questionTags": ["키워드3", "키워드4"]
+    }}
+  ],
+  "focus_assignments": [
+    {{
+      "focus_id": "focus-unique-id-1",
+      "confidence": 0.95,
+      "reason": "첫 번째 Focus에 할당한 이유"
+    }},
+    {{
+      "focus_id": "focus-unique-id-2",
+      "confidence": 0.90,
+      "reason": "두 번째 Focus에 할당한 이유"
     }}
   ]
 }}
+
+[주의사항]
+- Focus ID는 영문 소문자와 하이픈만 사용 (예: "focus-cpu-scheduling")
+- messageIds는 반드시 "msg-1", "msg-2" 형식
+- 모든 메시지가 최소 하나의 Focus에 포함되어야 함
+- 대화가 2-3개 메시지만 있으면 1개의 Focus로 충분
+
+[전체 대화록]
+{conversation_text}
 """
 
-class FocusService:
+
+class FocusClassificationService:
     """Service for classifying conversations into focus topics."""
     
-    def __init__(self, storage_path: str = "data/focus_db.json"):
-        """Initialize focus service."""
-        self.storage_path = storage_path
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.focuses = self._load_focuses()
-    
-    def _load_focuses(self) -> Dict[str, Any]:
-        """Load focuses from storage."""
-        if os.path.exists(self.storage_path):
+    def __init__(self):
+        """Initialize focus classification service."""
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            logger.warning("OPENAI_API_KEY not set. Classification service will not be available.")
+            self.client = None
+        else:
             try:
-                with open(self.storage_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                self.client = OpenAI(api_key=api_key)
+                logger.info("OpenAI client initialized for focus classification")
             except Exception as e:
-                logger.error(f"Failed to load focuses: {e}")
-        
-        return {
-            "focuses": {},
-            "metadata": {
-                "total_focuses": 0,
-                "total_sub_focuses": 0,
-                "last_id": "F000"
-            }
-        }
-    
-    def _save_focuses(self):
-        """Save focuses to storage."""
-        try:
-            with open(self.storage_path, "w", encoding="utf-8") as f:
-                json.dump(self.focuses, f, ensure_ascii=False, indent=2)
-                print("Focuses saved successfully.")
-                print(self.focuses)
-        except Exception as e:
-            logger.error(f"Failed to save focuses: {e}")
+                logger.error(f"Failed to initialize OpenAI client: {e}")
+                self.client = None
     
     def _format_conversation(self, messages: List[Dict[str, str]]) -> str:
-        """Format conversation messages to text."""
-        text = []
-        for msg in messages:
-            role = "사용자" if msg.get("role") == "user" else "AI"
-            text.append(f"{role}: {msg.get('content', '')}")
-        return "\n".join(text)
+        """Format conversation messages to numbered text."""
+        formatted = []
+        for i, msg in enumerate(messages):
+            role = "사용자" if msg.get("role") == "user" else "AI 어시스턴트"
+            content = msg.get("content", "")
+            formatted.append(f"[{i}] {role}: {content}")
+        return "\n\n".join(formatted)
     
-    def _format_focuses(self) -> str:
-        """Format existing focuses for prompt."""
-        if not self.focuses["focuses"]:
-            return "현재 Focus가 없습니다."
+    def _extract_json_from_response(self, content: str) -> Dict[str, Any]:
+        """Extract and parse JSON from AI response."""
+        # Remove markdown code blocks
+        content_cleaned = content.strip()
+        if content_cleaned.startswith("```json"):
+            content_cleaned = content_cleaned[7:]
+        elif content_cleaned.startswith("```"):
+            content_cleaned = content_cleaned[3:]
+        if content_cleaned.endswith("```"):
+            content_cleaned = content_cleaned[:-3]
+        content_cleaned = content_cleaned.strip()
         
-        text = []
-        for focus_id, focus in self.focuses["focuses"].items():
-            keywords = ", ".join(focus.get("keywords", [])[:5])
-            text.append(f"{focus_id}: {focus['summary']} [{keywords}]")
-            
-            for sub_focus in focus.get("sub_focuses", {}).values():
-                sub_kw = ", ".join(sub_focus.get("keywords", [])[:3])
-                text.append(f"  {sub_focus['id']}: {sub_focus['summary']} [{sub_kw}]")
-        
-        return "\n".join(text)
+        return json.loads(content_cleaned)
     
-
     def classify_conversation(
-            self,
-            conversation_id: str,
-            messages: List[Dict[str, str]]  # 반드시 [{'id': 'uuid', 'role': '...', 'content': '...'}] 형태여야 함
-        ) -> Dict[str, Any]:
-            """
-            대화를 분석하여 프론트엔드용 구조화된 JSON(Focus 그룹 포함)으로 변환합니다.
-            """
+        self,
+        conversation_id: str,
+        messages: List[Dict[str, str]]
+    ) -> Dict[str, Any]:
+        """
+        Classify a conversation into focus topics.
+        
+        Args:
+            conversation_id: Unique conversation ID
+            messages: List of messages [{"role": "user/assistant", "content": "..."}]
             
-            # 1. 메시지를 ID와 함께 포맷팅 (중요!)
-            # LLM이 ID를 인식할 수 있도록 포맷팅해야 함
-            formatted_messages = json.dumps([
-                {"id": msg["id"], "role": msg["role"], "content": msg["content"]} 
-                for msg in messages
-            ], ensure_ascii=False, indent=2)
-
-            # 2. 프롬프트 포맷팅 (새로운 구조화 프롬프트 사용)
-            # existing_focuses는 내부 구조화에는 불필요할 수 있어 제거하거나 참고용으로만 둡니다.
+        Returns:
+            Classification result with focuses and assignments
+        """
+        if not self.client:
+            return {
+                "error": "CLASSIFICATION_FAILED",
+                "message": "분류 서비스를 사용할 수 없습니다. OpenAI API 키를 확인하세요."
+            }
+        
+        # Validate input
+        if not conversation_id:
+            return {
+                "error": "INVALID_CONVERSATION_ID",
+                "message": "대화 ID가 제공되지 않았습니다."
+            }
+        
+        if not messages or len(messages) < 2:
+            return {
+                "error": "INSUFFICIENT_MESSAGES",
+                "message": "메시지 수가 부족합니다 (최소 2개 필요)",
+                "details": f"현재 메시지 수: {len(messages) if messages else 0}"
+            }
+        
+        try:
+            # Format conversation
+            conversation_text = self._format_conversation(messages)
+            
+            # Create prompt
             prompt = CLASSIFICATION_PROMPT.format(
-                conversation_text=formatted_messages,
-                current_timestamp=datetime.now().isoformat()
+                conversation_id=conversation_id,
+                current_timestamp=datetime.now().isoformat(),
+                conversation_text=conversation_text
             )
             
-            logger.info(f"Structuring conversation {conversation_id}")
+            logger.info(f"Classifying conversation {conversation_id} with {len(messages)} messages")
             
+            # Call OpenAI API
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "system", "content": prompt}],
-                temperature=0,
-                response_format={"type": "json_object"} # JSON 모드 강제 (모델 지원 시)
+                temperature=0.3,
+                max_tokens=2000
             )
             
-            result_text = response.choices[0].message.content.strip()
+            content = response.choices[0].message.content.strip()
+            logger.info(f"Received classification response (length: {len(content)})")
             
             # Parse JSON
-            try:
-                classification = json.loads(result_text)
-            except json.JSONDecodeError:
-                # 마크다운 백틱 제거 로직 (필요시 유지)
-                if result_text.startswith("```json"):
-                    result_text = result_text[7:-3]
-                classification = json.loads(result_text)
+            classification = self._extract_json_from_response(content)
             
-            # 3. 결과 반환 (프론트엔드 구조에 맞춤)
-            # self._apply_classification(...) 로직은 이 구조에 맞게 변경되어야 함
+            # Validate result structure
+            if "focuses" not in classification:
+                classification["focuses"] = []
+            if "focus_assignments" not in classification:
+                classification["focus_assignments"] = []
+            if "conversation_summary" not in classification:
+                classification["conversation_summary"] = "대화 요약"
             
-            return {
-                "id": conversation_id,
-                "title": classification.get("title", "무제 대화"),
-                "conversation_summary": classification.get("title"), # 요약으로 제목 사용
-                "focuses": classification.get("focuses", []), # 여기가 핵심: messageIds가 포함된 그룹
-                "messages": classification.get("messages", []), # Source 등이 추가된 메시지 목록
-                "classified_at": datetime.now().isoformat()
+            # Build response
+            result = {
+                "conversation_id": conversation_id,
+                "conversation_summary": classification["conversation_summary"],
+                "classified_at": datetime.now().isoformat(),
+                "focuses": classification["focuses"],
+                "focus_assignments": classification["focus_assignments"]
             }
-
-    def _apply_classification(
+            
+            logger.info(f"Successfully classified conversation with {len(result['focuses'])} focuses")
+            return result
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed: {e}")
+            logger.error(f"Response content: {content if 'content' in locals() else 'N/A'}")
+            return {
+                "error": "CLASSIFICATION_FAILED",
+                "message": "응답 파싱에 실패했습니다",
+                "details": str(e)
+            }
+        except Exception as e:
+            logger.error(f"Classification error: {e}")
+            return {
+                "error": "LLM_ERROR",
+                "message": "분류 중 오류가 발생했습니다",
+                "details": str(e)
+            }
+    
+    def save_conversation_with_focuses(
         self,
         conversation_id: str,
-        classification: Dict[str, Any]
-    ):
-        """Apply classification results to focus DB."""
-        next_id_num = int(self.focuses["metadata"]["last_id"][1:]) + 1
+        title: str,
+        messages: List[Dict[str, Any]],
+        classification_result: Dict[str, Any],
+        db: Session
+    ) -> Conversation:
+        """
+        Save conversation, messages, and focuses to database.
         
-        # Create new focuses
-        for new_focus in classification["new_focuses"]:
-            if new_focus["type"] == "focus":
-                focus_id = f"F{next_id_num:03d}"
-                next_id_num += 1
+        FIXED: Added db.flush() before inserting conversation_focus relationships
+        to ensure parent records exist first.
+        
+        Args:
+            conversation_id: Conversation ID
+            title: Conversation title
+            messages: List of messages
+            classification_result: Result from classify_conversation
+            db: Database session
+            
+        Returns:
+            Created Conversation object
+        """
+        try:
+            # 1. Create Conversation
+            conversation = Conversation(
+                id=conversation_id,
+                title=title,
+                summary=classification_result.get("conversation_summary"),
+                timestamp=datetime.now()
+            )
+            db.add(conversation)
+            
+            # 2. Create Messages
+            for i, msg in enumerate(messages):
+                message = Message(
+                    id=f"msg-{i+1}",  # msg-1, msg-2, ...
+                    conversation_id=conversation_id,
+                    role=msg.get("role"),
+                    content=msg.get("content"),
+                    sources=msg.get("sources"),  # JSON field
+                    message_order=i
+                )
+                db.add(message)
+            
+            # 3. Create Focuses
+            focuses = classification_result.get("focuses", [])
+            focus_assignments = classification_result.get("focus_assignments", [])
+            
+            # Create assignment lookup
+            assignment_map = {
+                assignment["focus_id"]: assignment
+                for assignment in focus_assignments
+            }
+            
+            for focus_data in focuses:
+                focus = Focus(
+                    id=focus_data["id"],
+                    name=focus_data["name"],
+                    message_ids=focus_data["messageIds"],  # JSON field
+                    question_tags=focus_data["questionTags"]  # JSON field
+                )
+                db.add(focus)
+            
+            # ⭐ CRITICAL FIX: Flush to insert Conversation and Focus into DB first
+            # This ensures parent records exist before creating foreign key relationships
+            logger.info(f"Flushing session to ensure parent records exist...")
+            db.flush()
+            logger.info(f"Flush completed, now creating relationships...")
+            
+            # 4. Now create conversation_focus relationships (after flush)
+            for focus_data in focuses:
+                assignment = assignment_map.get(focus_data["id"], {})
+                confidence = assignment.get("confidence", 1.0)
+                reason = assignment.get("reason")
                 
-                self.focuses["focuses"][focus_id] = {
-                    "id": focus_id,
-                    "summary": new_focus["summary"],
-                    "keywords": new_focus["keywords"],
-                    "created_at": datetime.now().isoformat(),
-                    "last_updated": datetime.now().isoformat(),
-                    "conversation_count": 1,
-                    "conversation_ids": [conversation_id],
-                    "sub_focuses": {}
-                }
-                
-                classification["focus_assignments"].append({
-                    "focus_id": focus_id,
-                    "confidence": 0.95,
-                    "reason": new_focus["reason"]
-                })
+                # Insert into association table
+                stmt = conversation_focus.insert().values(
+                    conversation_id=conversation_id,
+                    focus_id=focus_data["id"],
+                    confidence=confidence,
+                    reason=reason
+                )
+                db.execute(stmt)
             
-            elif new_focus["type"] == "sub-focus":
-                parent_id = new_focus["parent_id"]
-                if parent_id in self.focuses["focuses"]:
-                    sub_count = len(self.focuses["focuses"][parent_id]["sub_focuses"])
-                    sub_focus_id = f"{parent_id}-{sub_count + 1}"
-                    
-                    self.focuses["focuses"][parent_id]["sub_focuses"][sub_focus_id] = {
-                        "id": sub_focus_id,
-                        "summary": new_focus["summary"],
-                        "keywords": new_focus["keywords"],
-                        "context": new_focus["initial_context"],
-                        "conversation_count": 1,
-                        "conversation_ids": [conversation_id]
-                    }
-                    
-                    classification["focus_assignments"].append({
-                        "focus_id": sub_focus_id,
-                        "confidence": 0.9,
-                        "reason": new_focus["reason"]
-                    })
-        
-        # Update existing focuses
-        for update in classification["updates"]:
-            focus_id = update["focus_id"]
+            # 5. Commit transaction
+            db.commit()
+            db.refresh(conversation)
             
-            if "-" in focus_id:  # Sub-focus
-                parent_id = focus_id.split("-")[0]
-                if parent_id in self.focuses["focuses"]:
-                    parent = self.focuses["focuses"][parent_id]
-                    if focus_id in parent["sub_focuses"]:
-                        sub = parent["sub_focuses"][focus_id]
-                        
-                        if "new_keywords" in update:
-                            existing = set(sub.get("keywords", []))
-                            existing.update(update["new_keywords"])
-                            sub["keywords"] = list(existing)
-                        
-                        if "updated_context" in update and update["updated_context"]:
-                            sub["context"] = update["updated_context"]
-                        
-                        if conversation_id not in sub["conversation_ids"]:
-                            sub["conversation_ids"].append(conversation_id)
-                            sub["conversation_count"] += 1
-            else:  # Focus
-                if focus_id in self.focuses["focuses"]:
-                    focus = self.focuses["focuses"][focus_id]
-                    
-                    if "new_keywords" in update:
-                        existing = set(focus.get("keywords", []))
-                        existing.update(update["new_keywords"])
-                        focus["keywords"] = list(existing)
-                    
-                    if conversation_id not in focus["conversation_ids"]:
-                        focus["conversation_ids"].append(conversation_id)
-                        focus["conversation_count"] += 1
-        
-        # Add conversation references
-        for assignment in classification["focus_assignments"]:
-            focus_id = assignment["focus_id"]
+            logger.info(f"✅ Successfully saved conversation {conversation_id} with {len(messages)} messages and {len(focuses)} focuses")
+            return conversation
             
-            if "-" in focus_id:  # Sub-focus
-                parent_id = focus_id.split("-")[0]
-                if parent_id in self.focuses["focuses"]:
-                    parent = self.focuses["focuses"][parent_id]
-                    if conversation_id not in parent["conversation_ids"]:
-                        parent["conversation_ids"].append(conversation_id)
-                        parent["conversation_count"] += 1
-            else:  # Focus
-                if focus_id in self.focuses["focuses"]:
-                    focus = self.focuses["focuses"][focus_id]
-                    if conversation_id not in focus["conversation_ids"]:
-                        focus["conversation_ids"].append(conversation_id)
-                        focus["conversation_count"] += 1
-        
-        # Update metadata
-        self.focuses["metadata"]["last_id"] = f"F{next_id_num - 1:03d}"
-        self.focuses["metadata"]["total_focuses"] = len(self.focuses["focuses"])
-        self.focuses["metadata"]["total_sub_focuses"] = sum(
-            len(f["sub_focuses"]) for f in self.focuses["focuses"].values()
-        )
-        
-        # Save
-        self._save_focuses()
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error saving conversation: {e}")
+            raise
     
-    def get_all_focuses(self) -> Dict[str, Any]:
-        """Get all focuses."""
-        return self.focuses
-    
-    def search_focus(self, focus_id: str) -> Dict[str, Any]:
-        """Search for a specific focus."""
-        if "-" in focus_id:  # Sub-focus
-            parent_id = focus_id.split("-")[0]
-            if parent_id in self.focuses["focuses"]:
-                parent = self.focuses["focuses"][parent_id]
-                if focus_id in parent["sub_focuses"]:
-                    return {
-                        "focus": parent["sub_focuses"][focus_id],
-                        "parent": parent,
-                        "type": "sub-focus"
-                    }
-        else:  # Focus
-            if focus_id in self.focuses["focuses"]:
-                return {
-                    "focus": self.focuses["focuses"][focus_id],
-                    "type": "focus"
-                }
-        
-        return None
+    def is_available(self) -> bool:
+        """Check if the classification service is available."""
+        return self.client is not None
 
 
 # Global service instance
-focus_service = FocusService()
+focus_service = FocusClassificationService()
