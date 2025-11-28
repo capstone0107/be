@@ -1,0 +1,92 @@
+[
+  {
+    "note_id": "jun_001",
+    "author": "준",
+    "type": "github",
+    "title": "CPU 스케줄링 정리",
+    "content": "CPU 스케줄링은 Ready Queue에 있는 프로세스들을 대상으로 이루어진다.\n\n선점/비선점 스케줄링:\n- 비선점: CPU가 할당된 프로세스는 종료/waiting 상태로 전환할 때까지 CPU 유지\n- 선점: 어떤 프로세스가 CPU를 점유하고 있을 때 다른 프로세스가 선점 가능",
+    "source": "https://github.com/WeareSoft/tech-interview",
+    "created_at": "2025-11-12"
+  },
+  {
+    "note_id": "jun_002",
+    "author": "준",
+    "type": "github",
+    "title": "FCFS 스케줄링",
+    "content": "FCFS (First-Come, First-Served) Scheduling\n- 비선점 스케줄링\n- 먼저 CPU를 요청하는 프로세스에 먼저 CPU가 할당된다\n- FIFO queue를 사용해 쉽게 구현할 수 있다",
+    "source": "https://github.com/WeareSoft/tech-interview",
+    "created_at": "2025-11-13"
+  },
+  {
+    "note_id": "jun_003",
+    "author": "준",
+    "type": "github",
+    "title": "Convoy Effect",
+    "content": "FCFS의 문제점: convoy effect\n먼저 들어온 어떤 프로세스의 CPU 처리 시간이 길 경우 다른 모든 프로세스들이 기다림으로써 더 짧은 프로세스가 먼저 진행될 수 있는 경우보다 CPU 및 장치 사용률이 낮아지는 현상",
+    "source": "https://github.com/WeareSoft/tech-interview",
+    "created_at": "2025-11-14"
+  },
+  {
+    "note_id": "minsu_001",
+    "author": "민수",
+    "type": "chatgpt",
+    "title": "프로세스 스케줄링 목적",
+    "content": "Q: 프로세스 스케줄링의 목적이 뭔가요?\nA: 프로세스 스케줄링의 주된 목적은 시스템의 성능을 최적화하는 것입니다. CPU 이용률을 증가시키고, 처리율을 높이며, 응답 시간과 대기 시간을 최소화하고, 모든 프로세스가 자원을 공평하게 배정받도록 하며, 기아 현상을 방지합니다.",
+    "source": "ChatGPT 대화",
+    "created_at": "2025-11-12"
+  },
+  {
+    "note_id": "minsu_002",
+    "author": "민수",
+    "type": "chatgpt",
+    "title": "FCFS의 Convoy Effect",
+    "content": "Q: Convoy Effect가 정확히 뭔가요?\nA: CPU 사용 시간이 매우 긴 프로세스가 먼저 도착하여 CPU를 점유하고 있을 때, 그 뒤에 도착한 CPU 사용 시간이 매우 짧은 프로세스들이 긴 작업이 끝날 때까지 모두 기다려야 하는 현상입니다. 예를 들어 100초짜리 작업 뒤에 1초짜리 작업 3개가 있다면, 짧은 작업들은 총 100초를 기다려야 합니다.",
+    "source": "ChatGPT 대화",
+    "created_at": "2025-11-13"
+  },
+  {
+    "note_id": "minsu_003",
+    "author": "민수",
+    "type": "github",
+    "title": "SJF 스케줄링",
+    "content": "SJF (Shortest-Job-First) Scheduling\n- 비선점/선점 방식 모두 가능\n- CPU burst time이 가장 작은 프로세스에게 먼저 CPU 할당\n- 주어진 프로세스 집합에 대해 최소 평균 대기 시간 제공\n- 문제점: starvation - CPU 처리 시간이 긴 프로세스는 계속 뒤로 밀려남",
+    "source": "https://github.com/WeareSoft/tech-interview",
+    "created_at": "2025-11-14"
+  },
+  {
+    "note_id": "minsu_004",
+    "author": "민수",
+    "type": "chatgpt",
+    "title": "Round Robin 시간 할당량",
+    "content": "Q: Round Robin에서 Time Quantum을 어떻게 설정해야 하나요?\nA: Time Quantum이 너무 크면 FCFS와 같아지고, 너무 작으면 Context Switching이 너무 빈번하게 일어나 오버헤드가 발생합니다. 경험적으로 CPU burst의 80%는 time quantum보다 짧은 게 좋습니다.",
+    "source": "ChatGPT 대화",
+    "created_at": "2025-11-15"
+  },
+  {
+    "note_id": "sujin_001",
+    "author": "수진",
+    "type": "chatgpt",
+    "title": "FCFS 기본 개념",
+    "content": "Q: FCFS가 뭔가요?\nA: FCFS는 준비 큐에 가장 먼저 도착한 프로세스가 CPU를 먼저 할당받는 가장 단순한 비선점형 스케줄링입니다. 은행 창구에서 먼저 온 사람부터 서비스받는 것과 같은 방식입니다.",
+    "source": "ChatGPT 대화",
+    "created_at": "2025-11-13"
+  },
+  {
+    "note_id": "sujin_002",
+    "author": "수진",
+    "type": "chatgpt",
+    "title": "FCFS 문제점 예시",
+    "content": "Q: FCFS의 문제점을 예시로 설명해주세요\nA: 100초 걸리는 작업이 먼저 도착하고, 그 뒤에 1초씩 걸리는 작업 3개가 도착했다고 가정해봅시다. FCFS 방식에서는 짧은 작업들이 100초를 기다려야 하지만, 짧은 작업을 먼저 처리했다면 평균 대기시간이 훨씬 짧아졌을 겁니다.",
+    "source": "ChatGPT 대화",
+    "created_at": "2025-11-14"
+  },
+  {
+    "note_id": "sujin_003",
+    "author": "수진",
+    "type": "github",
+    "title": "Priority Scheduling",
+    "content": "Priority Scheduling\n- 우선순위가 높은 프로세스에게 CPU 할당\n- 문제점: indefinite blocking, starvation - 우선순위 낮은 프로세스가 무한정 대기\n- 해결방안: Aging - 오랫동안 대기하는 프로세스의 우선순위를 점진적으로 높임",
+    "source": "https://github.com/WeareSoft/tech-interview",
+    "created_at": "2025-11-16"
+  }
+]

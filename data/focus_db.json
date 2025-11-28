@@ -1,0 +1,31 @@
+{
+  "focuses": {
+    "F001": {
+      "id": "F001",
+      "summary": "사용자가 HMAC의 내부 구조에 대해 설명을 요청함.",
+      "keywords": [
+        "요청함.",
+        "RSA",
+        "OAEP",
+        "사용자가",
+        "구조에",
+        "설명을",
+        "HMAC의",
+        "동형성"
+      ],
+      "created_at": "2025-11-20T08:10:51.296286",
+      "last_updated": "2025-11-20T08:10:51.296318",
+      "conversation_count": 2,
+      "conversation_ids": [
+        "conv_1763626249298",
+        "conv_1763626542172"
+      ],
+      "sub_focuses": {}
+    }
+  },
+  "metadata": {
+    "total_focuses": 1,
+    "total_sub_focuses": 0,
+    "last_id": "F001"
+  }
+}

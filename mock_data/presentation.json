@@ -1,0 +1,26 @@
+{
+  "presentation_id": "cpu_scheduling_001",
+  "title": "CPU 스케줄링",
+  "author": "준",
+  "created_at": "2025-11-17",
+  "sections": [
+    {
+      "section_id": "sec_001",
+      "number": "1",
+      "title": "프로세스 스케줄링이란?",
+      "content": "프로세스 스케줄링은 운영체제가 CPU와 같은 시스템 자원을 여러 프로세스들에게 어떻게 할당할지 결정하는 작업입니다.\n\n주요 목표:\n- CPU 이용률 증가\n- 처리율 증가\n- 응답 시간/대기 시간 최소화\n- 공평성 유지"
+    },
+    {
+      "section_id": "sec_002",
+      "number": "2",
+      "title": "FCFS (First-Come, First-Served)",
+      "content": "FCFS는 준비 큐에 가장 먼저 도착한 프로세스가 가장 먼저 CPU를 할당받아 작업이 완료될 때까지 실행되는 비선점형 스케줄링 알고리즘입니다.\n\n특징:\n- 비선점형 방식\n- FIFO 구조로 작동\n- 구현이 매우 간단\n\n장점:\n- 구현이 쉽고 오버헤드가 적음\n- 도착 순서대로 처리하므로 공평함"
+    },
+    {
+      "section_id": "sec_003",
+      "number": "3",
+      "title": "Round Robin 스케줄링",
+      "content": "각 프로세스에 Time Quantum이라는 동일한 시간 조각을 할당하고, 이 시간이 만료되면 프로세스는 CPU를 반납하고 준비 큐의 맨 뒤로 이동합니다.\n\n특징:\n- 선점형 스케줄링\n- 모든 프로세스에게 공평하게 CPU 시간 배분\n- 시분할 시스템의 기본 알고리즘"
+    }
+  ]
+}

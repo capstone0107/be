@@ -8,7 +8,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed, before_log, after_lo
 
 from database import engine, Base 
 from models.orm import User
-from routers import query, admin, analysis, search, user, graph
+from routers import query, admin, analysis, search, user, graph, focus
 from services import langchain_service
 
 # Configure logging
@@ -45,7 +45,7 @@ app.include_router(analysis.router)
 app.include_router(search.router)
 app.include_router(graph.router)
 app.include_router(user.router)
-
+app.include_router(focus.router)
 
 @app.on_event("startup")
 async def startup_event():
