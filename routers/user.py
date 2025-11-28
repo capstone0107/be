@@ -10,8 +10,8 @@ from models.orm import User as DBUser # ORM 모델
 from services import user_service # 핵심 서비스 로직
 from config import SECRET_KEY, ALGORITHM
 
-router = APIRouter(prefix="/api/users", tags=["users"])
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/users/token") # 로그인 엔드포인트 URL
+router = APIRouter(prefix="/users", tags=["users"])
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/token") # 로그인 엔드포인트 URL
 
 # --- 1. JWT 유효성 검사 및 현재 사용자 조회 의존성 ---
 def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)) -> DBUser:
@@ -36,7 +36,7 @@ def get_current_user(db: Session = Depends(get_db), token: str = Depends(oauth2_
     return user
 
 # --- 2. 회원가입 (POST /register) ---
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="사용자 회원가입")
+@router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="사용자 회원가입")
 def register_user_endpoint(user: UserCreate, db: Session = Depends(get_db)):
     db_user = user_service.get_user_by_email(db, email=user.email)
     if db_user:
@@ -44,7 +44,7 @@ def register_user_endpoint(user: UserCreate, db: Session = Depends(get_db)):
     return user_service.create_user(db=db, user=user)
 
 # --- 3. 로그인 및 JWT 발급 (POST /token) ---
-@router.post("/token", response_model=Token, summary="이메일/비밀번호로 로그인하여 JWT 발급")
+@router.post("/login", response_model=Token, summary="이메일/비밀번호로 로그인하여 JWT 발급")
 def login_for_access_token_endpoint(user_data: UserLogin, db: Session = Depends(get_db)):
     user = user_service.get_user_by_email(db, email=user_data.email)
     

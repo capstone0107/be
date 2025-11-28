@@ -1,25 +1,22 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
-from jose import jwt, JWTError
+from jose import jwt
+import bcrypt
 
 from models.orm import User as DBUser # ORM 모델
 from models.user import UserCreate
 from config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 # 비밀번호 해싱 컨텍스트
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 UNLIMITED_EXPIRY_DAYS = 365 * 100
 
 # --- 1. 비밀번호 유틸리티 ---
 def get_password_hash(password: str) -> str:
-    """평문 비밀번호를 해싱합니다."""
-    return pwd_context.hash(password)
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """평문 비밀번호와 해싱된 비밀번호를 비교합니다."""
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 # --- 2. JWT 생성 ---
 def create_access_token(data: dict):
