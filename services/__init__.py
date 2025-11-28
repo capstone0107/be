@@ -4,5 +4,7 @@ from services.analysis_service import analysis_service
 from services.llm_service import llm_service
 from services.google_search_service import google_search_service
 from services.graph_service import graph_service
+import services.user_service as user_service
 
-__all__ = ["langchain_service", "analysis_service", "llm_service", "google_search_service", "graph_service"]
+__all__ = ["langchain_service", "analysis_service", "llm_service", "google_search_service", "graph_service", "user_service"]
+

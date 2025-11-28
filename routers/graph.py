@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any
 
 # Import the new graph-related models
-from models import AnalyzeConversationRequest, CombinedGraphRequest, GraphData
+from api_models import AnalyzeConversationRequest, CombinedGraphRequest, GraphData
 # Import the NEW graph_service
 from services.graph_service import graph_service
 
