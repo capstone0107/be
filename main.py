@@ -1,5 +1,6 @@
 import os
 import logging
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -7,7 +8,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed, before_log, after_lo
 
 from database import engine, Base 
 from models.orm import User
-from routers import query, admin, analysis, search, user
+from routers import query, admin, analysis, search, user, graph
 from services import langchain_service
 
 # Configure logging
@@ -18,7 +19,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Load environment variables
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+env_path = BASE_DIR / ".env"
+load_dotenv(dotenv_path=env_path)
 
 app = FastAPI(
     title="FastAPI LangChain Application",
@@ -40,7 +43,9 @@ app.include_router(query.router)
 app.include_router(admin.router)
 app.include_router(analysis.router)
 app.include_router(search.router)
+app.include_router(graph.router)
 app.include_router(user.router)
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -97,6 +102,8 @@ async def root():
             "embed": "/api/embed",
             "reload": "/api/reload",
             "analyze": "/api/analyze",
+            "graph": "/api/graph",          
+            "graph_combined": "/api/graph/combined", 
             "analysis_status": "/api/analysis/status"
         }
     }
