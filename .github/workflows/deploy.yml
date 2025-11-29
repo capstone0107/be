@@ -1,0 +1,57 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main  # main 브랜치에 푸시할 때 실행
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # 1. 코드 체크아웃
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    # 2. 서버에 코드 전송
+    - name: Deploy code to server
+      uses: appleboy/scp-action@master
+      with:
+        host: ${{ secrets.BACKEND_HOST }}
+        username: ${{ secrets.BACKEND_USER }}
+        key: ${{ secrets.BACKEND_SSH_KEY }}
+        source: "."
+        target: "/home/ubuntu/app"
+        rm: true
+    
+    # 3. .env 파일 생성 및 Docker Compose 실행
+    - name: Setup and run Docker Compose
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.BACKEND_HOST }}
+        username: ${{ secrets.BACKEND_USER }}
+        key: ${{ secrets.BACKEND_SSH_KEY }}
+        script: |
+          cd /home/ubuntu/app
+          
+          # .env 파일 생성
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" > .env
+          echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" >> .env
+          echo "GOOGLE_CSE_ID=${{ secrets.GOOGLE_CSE_ID }}" >> .env
+          
+          # Docker Compose 중지 및 제거
+          docker-compose down
+          
+          # 새 이미지 빌드 및 실행
+          docker-compose up -d --build
+          
+          # 로그 확인 (최근 50줄)
+          docker-compose logs --tail=50
+    
+    # 4. 배포 완료 알림
+    - name: Deployment complete
+      run: |
+        echo "✅ Backend deployment completed successfully!"
+        echo "🌐 API URL: http://15.164.233.74:8000"
+        echo "📚 Docs: http://15.164.233.74:8000/docs"
