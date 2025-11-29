@@ -132,6 +132,7 @@ class LLMService:
                 logger.info("끝의 ``` 제거")
             content = content.strip()
             
+            parsed_response = {}
             # JSON 파싱 (LaTeX 역슬래시 자동 수정 로직 추가)
             try:
                 # 1차 시도: 일반적인 파싱
@@ -147,11 +148,10 @@ class LLMService:
                 parsed_response = json.loads(fixed_content)
                 logger.info("LaTeX 역슬래시 수정 후 파싱 성공")
                 
-                # LLMResponse 객체로 변환
-                sources = [
-                    Source(**source) for source in parsed_response.get("sources", [])
-                ]
-            
+            sources = [
+                Source(**source) for source in parsed_response.get("sources", [])
+            ]
+
             return LLMResponse(
                 answer=parsed_response.get("answer", ""),
                 sources=sources
