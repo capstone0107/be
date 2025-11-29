@@ -4,6 +4,7 @@ from openai import OpenAI
 from pydantic import BaseModel
 import logging
 import json
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ class LLMService:
             - 답변 생성에 실제로 사용된 출처만 포함하세요
             - 검색 결과가 있다면 반드시 sources에 포함하세요
             - 검색 결과가 없으면 sources는 빈 배열로 제공하세요
+            - you must double-escape all backslashes
         """
 
         messages = [
@@ -130,13 +132,25 @@ class LLMService:
                 logger.info("끝의 ``` 제거")
             content = content.strip()
             
-            # JSON 파싱
-            parsed_response = json.loads(content)
-            
-            # LLMResponse 객체로 변환
-            sources = [
-                Source(**source) for source in parsed_response.get("sources", [])
-            ]
+            # JSON 파싱 (LaTeX 역슬래시 자동 수정 로직 추가)
+            try:
+                # 1차 시도: 일반적인 파싱
+                parsed_response = json.loads(content)
+            except json.JSONDecodeError:
+                # 2차 시도: LaTeX 역슬래시(\) 문제일 수 있으므로 정규식으로 수리 후 재시도
+                logger.warning("JSON 파싱 실패. LaTeX 역슬래시 자동 수정 시도...")
+                
+                # 유효한 JSON 이스케이프 문자(", \, /, b, f, n, r, t, u)가 아닌 역슬래시만 찾아서 두 번 쓴 것으로 교체
+                fixed_content = re.sub(r'\\(?![\\"/bfnrtu])', r'\\\\', content)
+                
+                # 수정된 내용으로 다시 파싱 (여기서 실패하면 진짜 오류임)
+                parsed_response = json.loads(fixed_content)
+                logger.info("LaTeX 역슬래시 수정 후 파싱 성공")
+                
+                # LLMResponse 객체로 변환
+                sources = [
+                    Source(**source) for source in parsed_response.get("sources", [])
+                ]
             
             return LLMResponse(
                 answer=parsed_response.get("answer", ""),
