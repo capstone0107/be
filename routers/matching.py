@@ -10,7 +10,7 @@ from typing import Optional
 from services.matching_service import matching_service
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/matching", tags=["matching"])
+router = APIRouter(prefix="/matching", tags=["matching"])
 
 
 def load_mock_data():

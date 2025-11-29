@@ -11,7 +11,7 @@ from api_models import AnalyzeConversationRequest, CombinedGraphRequest, GraphDa
 from services.graph_service import graph_service
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/graph", tags=["graph"])
+router = APIRouter(prefix="/graph", tags=["graph"])
 
 
 @router.post("", response_model=GraphData)

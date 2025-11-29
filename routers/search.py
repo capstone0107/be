@@ -10,7 +10,7 @@ from services.conversation_service import conversation_service
 from services.llm_service import llm_service
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/search", tags=["search-improved"])
+router = APIRouter(prefix="/search", tags=["search-improved"])
 
 
 # ==========================================
