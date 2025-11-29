@@ -170,14 +170,18 @@ class ConversationService:
             conversation_id, "assistant", assistant_message, db=db, sources=sources
         )
         
-        return {
+        result = {
             "status": "saved",
             "user_message_id": user_result["message_id"],
             "assistant_message_id": assistant_result["message_id"],
-            # [추가됨] 여기서 저장된 순서(order)를 반환해야 합니다.
-            "assistant_message_order": assistant_result["message_order"], 
             "conversation_id": conversation_id
         }
+        
+        # message_order가 있는 경우에만 추가
+        if "message_order" in assistant_result:
+            result["assistant_message_order"] = assistant_result["message_order"]
+        
+        return result
     # ==========================================
     # PHASE 3: 사용자 저장 (Focus 분류)
     # ==========================================

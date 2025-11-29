@@ -102,57 +102,126 @@ async def query_and_save(
 ):
     """질문하고 응답을 즉시 DB에 저장"""
     try:
-        # 1. LLM 호출
-        logger.info(f"Calling LLM for question: {request.question[:50]}...")
-        llm_result = llm_service.generate_text(request.question)
+        # 1. 요청 정보 로깅
+        logger.info(f"=== Query Request Started ===")
+        logger.info(f"Conversation ID: {request.conversation_id}")
+        logger.info(f"Question: {request.question[:100]}...")
         
-        # 2. 메시지 쌍 저장 (전역 서비스 사용)
-        logger.info(f"Saving message pair to DB...")
-        save_result = conversation_service.save_message_pair(
-            conversation_id=request.conversation_id,
-            user_message=request.question,
-            assistant_message=llm_result.answer,
-            sources=[
+        # 2. LLM 호출
+        logger.info(f"[Step 1] Calling LLM service...")
+        try:
+            llm_result = llm_service.generate_text(request.question)
+            logger.info(f"[Step 1] LLM response received successfully")
+            logger.info(f"Answer length: {len(llm_result.answer)} chars")
+            logger.info(f"Sources count: {len(llm_result.sources)}")
+        except Exception as e:
+            logger.error(f"[Step 1] LLM service error: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"LLM 호출 실패: {str(e)}"
+            )
+        
+        # 3. Sources 준비
+        logger.info(f"[Step 2] Preparing sources...")
+        try:
+            sources = [
                 {
                     "title": s.title,
                     "url": s.url,
                     "snippet": s.snippet
                 }
                 for s in llm_result.sources
-            ],
-            db=db
-        )
-        
-        if save_result["status"] != "saved":
+            ]
+            logger.info(f"[Step 2] Sources prepared: {len(sources)} items")
+            logger.debug(f"Sources data: {sources}")
+        except Exception as e:
+            logger.error(f"[Step 2] Error preparing sources: {str(e)}", exc_info=True)
             raise HTTPException(
                 status_code=500,
-                detail=f"메시지 저장 실패: {save_result.get('message')}"
+                detail=f"Sources 준비 실패: {str(e)}"
             )
         
-        # 3. 응답 구성
-        response = QueryResponse(
-            conversation_id=request.conversation_id,
-            message_id=save_result["assistant_message_id"],
-            answer=llm_result.answer,
-            sources=[
-                {
-                    "title": s.title,
-                    "url": s.url,
-                    "snippet": s.snippet or ""
-                }
-                for s in llm_result.sources
-            ],
-            message_order=save_result["assistant_message_order"]
-        )
+        # 4. 메시지 쌍 저장
+        logger.info(f"[Step 3] Saving message pair to DB...")
+        logger.info(f"User message length: {len(request.question)} chars")
+        logger.info(f"Assistant message length: {len(llm_result.answer)} chars")
         
+        try:
+            save_result = conversation_service.save_message_pair(
+                conversation_id=request.conversation_id,
+                user_message=request.question,
+                assistant_message=llm_result.answer,
+                sources=sources,
+                db=db
+            )
+            logger.info(f"[Step 3] Message pair saved successfully")
+            logger.info(f"Save result: {save_result}")
+        except Exception as e:
+            logger.error(f"[Step 3] DB save error: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"메시지 저장 실패: {str(e)}"
+            )
+        
+        # 5. 저장 결과 검증
+        logger.info(f"[Step 4] Validating save result...")
+        if save_result["status"] != "saved":
+            error_msg = save_result.get('message', 'Unknown error')
+            logger.error(f"[Step 4] Save status is not 'saved': {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"메시지 저장 실패: {error_msg}"
+            )
+        
+        # 6. message_order 확인
+        logger.info(f"[Step 5] Checking message_order...")
+        if "assistant_message_order" not in save_result:
+            logger.warning(f"[Step 5] assistant_message_order not in save_result")
+            logger.warning(f"Available keys: {save_result.keys()}")
+        
+        assistant_message_order = save_result.get("assistant_message_order")
+        logger.info(f"[Step 5] Message order: {assistant_message_order}")
+        
+        # 7. 응답 구성
+        logger.info(f"[Step 6] Building response...")
+        try:
+            response = QueryResponse(
+                conversation_id=request.conversation_id,
+                message_id=save_result["assistant_message_id"],
+                answer=llm_result.answer,
+                sources=[
+                    {
+                        "title": s.title,
+                        "url": s.url,
+                        "snippet": s.snippet or ""
+                    }
+                    for s in llm_result.sources
+                ],
+                message_order=assistant_message_order
+            )
+            logger.info(f"[Step 6] Response built successfully")
+            logger.info(f"Response message_id: {response.message_id}")
+            logger.info(f"Response message_order: {response.message_order}")
+        except Exception as e:
+            logger.error(f"[Step 6] Error building response: {str(e)}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail=f"응답 구성 실패: {str(e)}"
+            )
+        
+        logger.info(f"=== Query Request Completed Successfully ===")
         return response
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error in query_and_save: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+        logger.error(f"=== Unexpected error in query_and_save ===", exc_info=True)
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error message: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"서버 오류: {str(e)}"
+        )
 
 # ==========================================
 # PHASE 3: 사용자 저장 (Focus 분류)
