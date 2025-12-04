@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_fixed, before_log, after_log
+from middleware.auth import AuthMiddleware
 
 from database import engine, Base 
 from models.orm import User
@@ -37,6 +38,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add authentication middleware
+app.add_middleware(AuthMiddleware)
 
 # Include routers
 app.include_router(query.router)
