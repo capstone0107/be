@@ -9,7 +9,7 @@ from middleware.auth import AuthMiddleware
 
 from database import engine, Base 
 from models.orm import User
-from routers import query, admin, analysis, search, user, graph, focus
+from routers import query, admin, analysis, search, user, graph, focus, bookmark
 from services import langchain_service
 
 # Configure logging
@@ -50,7 +50,7 @@ app.include_router(search.router)
 app.include_router(graph.router)
 app.include_router(user.router)
 app.include_router(focus.router)
-
+app.include_router(bookmark.router) 
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup."""
