@@ -1,11 +1,10 @@
 import logging
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
-# 서비스를 전역으로 import 합니다.
 from services.conversation_service import conversation_service
 from services.llm_service import llm_service
 
@@ -14,12 +13,28 @@ router = APIRouter(prefix="/search", tags=["search-improved"])
 
 
 # ==========================================
-# Request/Response Models
+# Helper: 인증된 사용자 정보 가져오기
+# ==========================================
+
+def get_current_user_id(request: Request) -> Optional[int]:
+    """
+    AuthMiddleware에서 설정한 사용자 정보를 가져옵니다.
+    
+    Returns:
+        user_id: 인증된 사용자 ID, 비인증 시 None
+    """
+    if hasattr(request.state, 'is_authenticated') and request.state.is_authenticated:
+        return getattr(request.state, 'user_id', None)
+    return None
+
+
+# ==========================================
+# Request/Response Models (동일)
 # ==========================================
 
 class StartConversationRequest(BaseModel):
     conversation_id: str
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None  # Deprecated: 이제 토큰에서 가져옴
 
 class StartConversationResponse(BaseModel):
     status: str
@@ -58,21 +73,29 @@ class FinalizeResponse(BaseModel):
 
 
 # ==========================================
-# PHASE 1: 대화 시작
+# PHASE 1: 대화 시작 (⭐ 인증된 사용자 ID 사용)
 # ==========================================
 
 @router.post("/start", response_model=StartConversationResponse)
 async def start_conversation(
-    request: StartConversationRequest,
+    request_data: StartConversationRequest,
+    request: Request,  # ⭐ Request 객체 추가
     db: Session = Depends(get_db)
 ):
-    """대화 시작 - Conversation 레코드 생성"""
+    """
+    대화 시작 - Conversation 레코드 생성
+    
+    ⭐ 변경사항: AuthMiddleware에서 설정한 user_id를 자동으로 사용
+    """
     try:
-        logger.info(f"Starting conversation {request.conversation_id} for user {request.user_id}")
-        # 전역 인스턴스 사용
+        # ⭐ 인증된 사용자 ID 가져오기 (토큰 기반)
+        user_id = get_current_user_id(request)
+        
+        logger.info(f"Starting conversation {request_data.conversation_id} for user {user_id}")
+        
         result = conversation_service.create_conversation(
-            conversation_id=request.conversation_id,
-            user_id=request.user_id,
+            conversation_id=request_data.conversation_id,
+            user_id=user_id,  # ⭐ 토큰에서 가져온 user_id 사용
             db=db
         )
         
@@ -92,122 +115,67 @@ async def start_conversation(
 
 
 # ==========================================
-# PHASE 2: 질문 및 메시지 저장
+# PHASE 2: 질문 및 메시지 저장 (변경 없음)
 # ==========================================
 
 @router.post("/query", response_model=QueryResponse)
 async def query_and_save(
-    request: QueryRequest,
+    request_data: QueryRequest,
     db: Session = Depends(get_db)
 ):
     """질문하고 응답을 즉시 DB에 저장"""
     try:
-        # 1. 요청 정보 로깅
         logger.info(f"=== Query Request Started ===")
-        logger.info(f"Conversation ID: {request.conversation_id}")
-        logger.info(f"Question: {request.question[:100]}...")
+        logger.info(f"Conversation ID: {request_data.conversation_id}")
+        logger.info(f"Question: {request_data.question[:100]}...")
         
-        # 2. LLM 호출
+        # LLM 호출
         logger.info(f"[Step 1] Calling LLM service...")
         try:
-            llm_result = llm_service.generate_text(request.question)
+            llm_result = llm_service.generate_text(request_data.question)
             logger.info(f"[Step 1] LLM response received successfully")
-            logger.info(f"Answer length: {len(llm_result.answer)} chars")
-            logger.info(f"Sources count: {len(llm_result.sources)}")
         except Exception as e:
             logger.error(f"[Step 1] LLM service error: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"LLM 호출 실패: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"LLM 호출 실패: {str(e)}")
         
-        # 3. Sources 준비
+        # Sources 준비
         logger.info(f"[Step 2] Preparing sources...")
-        try:
-            sources = [
+        sources = [
+            {
+                "title": s.title,
+                "url": s.url,
+                "snippet": s.snippet
+            }
+            for s in llm_result.sources
+        ]
+        
+        # 메시지 쌍 저장
+        logger.info(f"[Step 3] Saving message pair to DB...")
+        save_result = conversation_service.save_message_pair(
+            conversation_id=request_data.conversation_id,
+            user_message=request_data.question,
+            assistant_message=llm_result.answer,
+            sources=sources,
+            db=db
+        )
+        
+        if save_result["status"] != "saved":
+            raise HTTPException(status_code=500, detail=save_result.get('message', 'Unknown error'))
+        
+        response = QueryResponse(
+            conversation_id=request_data.conversation_id,
+            message_id=save_result["assistant_message_id"],
+            answer=llm_result.answer,
+            sources=[
                 {
                     "title": s.title,
                     "url": s.url,
-                    "snippet": s.snippet
+                    "snippet": s.snippet or ""
                 }
                 for s in llm_result.sources
-            ]
-            logger.info(f"[Step 2] Sources prepared: {len(sources)} items")
-            logger.debug(f"Sources data: {sources}")
-        except Exception as e:
-            logger.error(f"[Step 2] Error preparing sources: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Sources 준비 실패: {str(e)}"
-            )
-        
-        # 4. 메시지 쌍 저장
-        logger.info(f"[Step 3] Saving message pair to DB...")
-        logger.info(f"User message length: {len(request.question)} chars")
-        logger.info(f"Assistant message length: {len(llm_result.answer)} chars")
-        
-        try:
-            save_result = conversation_service.save_message_pair(
-                conversation_id=request.conversation_id,
-                user_message=request.question,
-                assistant_message=llm_result.answer,
-                sources=sources,
-                db=db
-            )
-            logger.info(f"[Step 3] Message pair saved successfully")
-            logger.info(f"Save result: {save_result}")
-        except Exception as e:
-            logger.error(f"[Step 3] DB save error: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"메시지 저장 실패: {str(e)}"
-            )
-        
-        # 5. 저장 결과 검증
-        logger.info(f"[Step 4] Validating save result...")
-        if save_result["status"] != "saved":
-            error_msg = save_result.get('message', 'Unknown error')
-            logger.error(f"[Step 4] Save status is not 'saved': {error_msg}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"메시지 저장 실패: {error_msg}"
-            )
-        
-        # 6. message_order 확인
-        logger.info(f"[Step 5] Checking message_order...")
-        if "assistant_message_order" not in save_result:
-            logger.warning(f"[Step 5] assistant_message_order not in save_result")
-            logger.warning(f"Available keys: {save_result.keys()}")
-        
-        assistant_message_order = save_result.get("assistant_message_order")
-        logger.info(f"[Step 5] Message order: {assistant_message_order}")
-        
-        # 7. 응답 구성
-        logger.info(f"[Step 6] Building response...")
-        try:
-            response = QueryResponse(
-                conversation_id=request.conversation_id,
-                message_id=save_result["assistant_message_id"],
-                answer=llm_result.answer,
-                sources=[
-                    {
-                        "title": s.title,
-                        "url": s.url,
-                        "snippet": s.snippet or ""
-                    }
-                    for s in llm_result.sources
-                ],
-                message_order=assistant_message_order
-            )
-            logger.info(f"[Step 6] Response built successfully")
-            logger.info(f"Response message_id: {response.message_id}")
-            logger.info(f"Response message_order: {response.message_order}")
-        except Exception as e:
-            logger.error(f"[Step 6] Error building response: {str(e)}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"응답 구성 실패: {str(e)}"
-            )
+            ],
+            message_order=save_result.get("assistant_message_order", 0)
+        )
         
         logger.info(f"=== Query Request Completed Successfully ===")
         return response
@@ -216,34 +184,39 @@ async def query_and_save(
         raise
     except Exception as e:
         logger.error(f"=== Unexpected error in query_and_save ===", exc_info=True)
-        logger.error(f"Error type: {type(e).__name__}")
-        logger.error(f"Error message: {str(e)}")
-        raise HTTPException(
-            status_code=500, 
-            detail=f"서버 오류: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"서버 오류: {str(e)}")
+
 
 # ==========================================
-# PHASE 3: 사용자 저장 (Focus 분류)
+# PHASE 3: 사용자 저장 (⭐ user_id 전달)
 # ==========================================
 
 @router.post("/finalize", response_model=FinalizeResponse)
 async def finalize_conversation(
-    request: FinalizeRequest,
+    request_data: FinalizeRequest,
+    request: Request,  # ⭐ Request 객체 추가
     db: Session = Depends(get_db)
 ):
-    """사용자가 '저장' 버튼을 누를 때 호출"""
+    """
+    사용자가 '저장' 버튼을 누를 때 호출
+    
+    ⭐ 변경사항: 인증된 사용자 ID를 Focus 생성 시 전달
+    """
     try:
+        # ⭐ 인증된 사용자 ID 가져오기
+        user_id = get_current_user_id(request)
+        
         logger.info(
-            f"Finalizing conversation {request.conversation_id} "
-            f"(title: {request.user_title})"
+            f"Finalizing conversation {request_data.conversation_id} "
+            f"(user_id: {user_id}, title: {request_data.user_title})"
         )
         
-        # 전역 서비스 사용
+        # ⭐ user_id를 finalize_conversation에 전달
         result = conversation_service.finalize_conversation(
-            conversation_id=request.conversation_id,
+            conversation_id=request_data.conversation_id,
             db=db,
-            user_title=request.user_title
+            user_id=user_id,  # ⭐ 추가
+            user_title=request_data.user_title
         )
         
         if result["status"] == "error":
@@ -251,13 +224,12 @@ async def finalize_conversation(
             
             if error_code == "NOT_FOUND":
                 raise HTTPException(status_code=404, detail=result["message"])
+            elif error_code == "FORBIDDEN":  # ⭐ 새로운 에러 타입
+                raise HTTPException(status_code=403, detail=result["message"])
             elif error_code == "INSUFFICIENT_MESSAGES":
                 raise HTTPException(status_code=400, detail=result["message"])
             elif error_code == "CLASSIFICATION_FAILED":
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"{result['message']}: {result.get('details')}"
-                )
+                raise HTTPException(status_code=500, detail=result["message"])
             else:
                 raise HTTPException(status_code=500, detail=result["message"])
         
@@ -285,7 +257,7 @@ async def finalize_conversation(
 
 
 # ==========================================
-# 유틸리티 엔드포인트
+# 유틸리티 엔드포인트 (동일)
 # ==========================================
 
 @router.get("/status/{conversation_id}")
@@ -305,9 +277,14 @@ async def get_conversation_status(
 @router.get("/conversation/{conversation_id}")
 async def get_full_conversation(
     conversation_id: str,
+    request: Request,  # ⭐ 권한 체크를 위해 추가
     db: Session = Depends(get_db)
 ):
-    """전체 대화 조회 (메시지 + Focus 포함)"""
+    """
+    전체 대화 조회 (메시지 + Focus 포함)
+    
+    ⭐ 권한 체크: 자신의 대화만 조회 가능
+    """
     from models.conversation_orm import Conversation
     
     try:
@@ -319,6 +296,14 @@ async def get_full_conversation(
             raise HTTPException(
                 status_code=404,
                 detail=f"대화 {conversation_id}를 찾을 수 없습니다"
+            )
+        
+        # ⭐ 권한 체크
+        user_id = get_current_user_id(request)
+        if user_id and conversation.user_id and conversation.user_id != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="다른 사용자의 대화는 조회할 수 없습니다"
             )
         
         # Build response
@@ -347,6 +332,7 @@ async def get_full_conversation(
                 "title": conversation.title,
                 "summary": conversation.summary,
                 "is_saved": conversation.is_saved == 1,
+                "user_id": conversation.user_id,  # ⭐ user_id 포함
                 "timestamp": conversation.created_at.isoformat() if hasattr(conversation, 'created_at') else None,
                 "messages": messages,
                 "focuses": focuses

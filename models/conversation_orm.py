@@ -31,7 +31,7 @@ class Conversation(Base):
     summary = Column(Text, nullable=True)  # Focus 분류 시 업데이트
     is_saved = Column(Integer, default=0, nullable=False)  # 0: 임시, 1: 저장완료
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
-    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # 소유 사용자
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -50,7 +50,7 @@ class Conversation(Base):
     )
     
     def __repr__(self):
-        return f"<Conversation(id='{self.id}', is_saved={self.is_saved}, messages={len(self.messages)})>"
+        return f"<Conversation(id='{self.id}', user_id={self.user_id}, is_saved={self.is_saved}, messages={len(self.messages)})>"
 
 
 class Message(Base):
@@ -63,7 +63,7 @@ class Message(Base):
     """
     __tablename__ = "messages"
     
-    id = Column(String(50), primary_key=True)  # "msg-1", "msg-2" 형식
+    id = Column(String(50), primary_key=True)  # UUID 형식
     conversation_id = Column(String(50), ForeignKey('conversations.id'), nullable=False)
     role = Column(String(20), nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)
@@ -84,6 +84,9 @@ class Focus(Base):
     Focus 주제를 저장하는 테이블
     
     생성 시점: 사용자가 저장 버튼을 누를 때만
+    
+    ⭐ user_id 추가: Focus는 특정 사용자가 소유하며, 
+    같은 conversation_id라도 사용자마다 다른 Focus를 가질 수 있습니다.
     """
     __tablename__ = "focuses"
     
@@ -91,6 +94,7 @@ class Focus(Base):
     name = Column(String(200), nullable=False)  # "CPU 스케줄링 기초"
     message_ids = Column(JSON, nullable=False)  # ["msg-1", "msg-2", "msg-3"]
     question_tags = Column(JSON, nullable=False)  # ["FCFS", "Round Robin"]
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=True)  # ⭐ 소유 사용자 추가
     
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
@@ -102,4 +106,4 @@ class Focus(Base):
     )
     
     def __repr__(self):
-        return f"<Focus(id='{self.id}', name='{self.name}')>"
+        return f"<Focus(id='{self.id}', name='{self.name}', user_id={self.user_id})>"

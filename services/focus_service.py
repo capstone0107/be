@@ -1,17 +1,17 @@
 import json
 import os
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
-# 모델 임포트 (경로는 프로젝트 구조에 맞게 조정하세요)
+# 모델 임포트
 from models.conversation_orm import Conversation, Message, Focus, conversation_focus
 
 logger = logging.getLogger(__name__)
 
-# 프롬프트 수정: 복잡한 ID 대신 '메시지 번호(Index)'를 사용하도록 변경
+# 프롬프트는 동일하게 유지
 CLASSIFICATION_PROMPT = """
 당신은 대화 로그를 분석하여 주제별 Focus로 분류하는 AI 어시스턴트입니다.
 
@@ -77,9 +77,7 @@ class FocusClassificationService:
         """메시지 객체 리스트를 LLM 프롬프트용 텍스트로 변환 (인덱스 부여)"""
         formatted = []
         for i, msg in enumerate(messages):
-            # role이 user면 '사용자', assistant면 'AI' 등
             role_str = "사용자" if msg.role == "user" else "AI"
-            # [0] 사용자: 안녕하세요 형태
             formatted.append(f"[{i}] {role_str}: {msg.content}")
         return "\n".join(formatted)
 
@@ -94,7 +92,12 @@ class FocusClassificationService:
             cleaned = cleaned[:-3]
         return json.loads(cleaned.strip())
 
-    def analyze_and_save_focus(self, conversation_id: str, db: Session) -> Dict[str, Any]:
+    def analyze_and_save_focus(
+        self, 
+        conversation_id: str, 
+        db: Session,
+        user_id: Optional[int] = None  # ⭐ user_id 파라미터 추가
+    ) -> Dict[str, Any]:
         """
         [핵심 메서드]
         DB에서 메시지를 가져와 분석 후, Focus 결과를 다시 DB에 저장합니다.
@@ -102,6 +105,7 @@ class FocusClassificationService:
         Args:
             conversation_id: 대상 대화 ID
             db: DB 세션
+            user_id: 사용자 ID (Optional) ⭐
         """
         if not self.client:
             return {"status": "error", "message": "OpenAI Client not available"}
@@ -115,8 +119,7 @@ class FocusClassificationService:
             if not messages:
                 return {"status": "error", "message": "No messages found for this conversation"}
 
-            # 2. 인덱스 매핑 생성 (Index -> Real DB Message ID)
-            # LLM은 0, 1, 2로 답하고, 우리는 이걸 실제 ID로 바꿉니다.
+            # 2. 인덱스 매핑 생성
             index_to_id_map = {i: msg.id for i, msg in enumerate(messages)}
 
             # 3. 프롬프트용 텍스트 생성
@@ -139,48 +142,48 @@ class FocusClassificationService:
             
             result_json = self._extract_json(response.choices[0].message.content)
             
-            # 5. DB 저장 로직 (업데이트)
-            # 5-1. Conversation 테이블 업데이트 (요약, 제목 등)
+            # 5. DB 저장 로직
+            # 5-1. Conversation 테이블 업데이트
             conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
             if conversation:
                 conversation.summary = result_json.get("conversation_summary")
-                # 제목이 없으면 요약 내용을 제목으로 사용하거나 첫 Focus 이름 사용
                 if not conversation.title:
                     conversation.title = result_json.get("conversation_summary")[:50]
-                conversation.is_saved = 1  # 저장 완료 상태로 변경
+                conversation.is_saved = 1
+                # ⭐ user_id가 없으면 현재 전달받은 user_id로 업데이트
+                if not conversation.user_id and user_id:
+                    conversation.user_id = user_id
 
             # 5-2. Focus 및 관계 저장
             focuses_data = result_json.get("focuses", [])
             assignments_data = result_json.get("focus_assignments", [])
             
-            # Focus 결과를 반환하기 위해 저장해둘 리스트
             saved_focus_list = []
 
             for idx, focus_item in enumerate(focuses_data):
-                # A. Focus ID 생성 (Unique하게)
+                # A. Focus ID 생성
                 focus_db_id = f"focus-{conversation_id}-{idx+1}"
                 
-                # B. 인덱스를 실제 Message ID로 변환 ⭐ (가장 중요한 부분)
+                # B. 인덱스를 실제 Message ID로 변환
                 real_message_ids = []
                 for msg_idx in focus_item.get("message_indexes", []):
                     if msg_idx in index_to_id_map:
                         real_message_ids.append(index_to_id_map[msg_idx])
                 
-                # C. Focus 객체 생성
+                # C. Focus 객체 생성 (⭐ user_id 포함)
                 new_focus = Focus(
                     id=focus_db_id,
                     name=focus_item["name"],
-                    message_ids=real_message_ids,   # JSON 타입 컬럼에 실제 ID 리스트 저장
-                    question_tags=focus_item.get("questionTags", [])
+                    message_ids=real_message_ids,
+                    question_tags=focus_item.get("questionTags", []),
+                    user_id=user_id  # ⭐ user_id 설정
                 )
                 db.add(new_focus)
                 
-                # D. 관계 테이블 (Conversation <-> Focus) 준비
-                # assignments_data에서 현재 순서(idx)에 맞는 정보 찾기 (혹은 단순 매칭)
+                # D. 관계 테이블 준비
                 assignment_info = next((a for a in assignments_data if a.get("focus_index") == idx), {})
                 
-                # Flush하여 Focus ID가 DB에 인식되게 함
-                db.flush() 
+                db.flush()
 
                 # E. 관계 연결
                 stmt = conversation_focus.insert().values(
@@ -200,7 +203,7 @@ class FocusClassificationService:
                 })
 
             db.commit()
-            logger.info(f"✅ Successfully analyzed and saved focuses for {conversation_id}")
+            logger.info(f"✅ Successfully analyzed and saved focuses for {conversation_id} (user_id: {user_id})")
 
             return {
                 "status": "success",
@@ -213,6 +216,10 @@ class FocusClassificationService:
             db.rollback()
             logger.error(f"Error in analyze_and_save_focus: {e}")
             return {"status": "error", "message": str(e)}
+
+    def is_available(self) -> bool:
+        """Check if the service is available"""
+        return self.client is not None
 
 # 전역 인스턴스
 focus_service = FocusClassificationService()

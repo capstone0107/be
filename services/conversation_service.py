@@ -186,14 +186,22 @@ class ConversationService:
     # PHASE 3: 사용자 저장 (Focus 분류)
     # ==========================================
 
+
     def finalize_conversation(
         self,
         conversation_id: str,
         db: Session,
+        user_id: Optional[int] = None,  # ⭐ user_id 파라미터 추가
         user_title: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         사용자가 저장 버튼을 눌렀을 때 실행
+        
+        Args:
+            conversation_id: 대화 ID
+            db: DB 세션
+            user_id: 현재 로그인한 사용자 ID ⭐
+            user_title: 사용자 지정 제목 (Optional)
         """
         try:
             from models.conversation_orm import Conversation, Message
@@ -208,6 +216,14 @@ class ConversationService:
                     "status": "error",
                     "error": "NOT_FOUND",
                     "message": f"대화 {conversation_id}를 찾을 수 없습니다"
+                }
+            
+            # ⭐ 권한 체크: 해당 대화가 현재 사용자의 것인지 확인
+            if user_id and conversation.user_id and conversation.user_id != user_id:
+                return {
+                    "status": "error",
+                    "error": "FORBIDDEN",
+                    "message": "다른 사용자의 대화는 저장할 수 없습니다"
                 }
             
             if conversation.is_saved == 1:
@@ -226,13 +242,13 @@ class ConversationService:
                     "message": "메시지가 충분하지 않습니다 (최소 2개 필요)"
                 }
 
-            # 2. FocusService에게 분석 및 저장 위임 (메서드 이름 변경됨!)
-            # 이전: classify_conversation -> 이후: analyze_and_save_focus
-            logger.info(f"🔍 Delegating analysis for {conversation_id} to FocusService...")
+            # 2. FocusService에게 분석 및 저장 위임 (⭐ user_id 전달)
+            logger.info(f"🔍 Delegating analysis for {conversation_id} to FocusService (user_id: {user_id})...")
             
             result = self.focus_service.analyze_and_save_focus(
                 conversation_id=conversation_id,
-                db=db
+                db=db,
+                user_id=user_id  # ⭐ user_id 전달
             )
             
             if result["status"] == "error":
@@ -242,16 +258,15 @@ class ConversationService:
                     "message": result.get("message")
                 }
             
-            # 3. 사용자 지정 제목이 있다면 덮어쓰기 (Optional)
+            # 3. 사용자 지정 제목이 있다면 덮어쓰기
             if user_title:
                 conversation.title = user_title
                 db.commit()
-                # 결과 딕셔너리에도 반영
                 result["title"] = user_title
             else:
                 result["title"] = conversation.title
 
-            # 반환 포맷 맞추기 (Router의 Response Model에 맞게)
+            # 반환 포맷
             return {
                 "status": "finalized",
                 "conversation_id": conversation_id,
@@ -270,6 +285,7 @@ class ConversationService:
                 "error": "FINALIZE_FAILED",
                 "message": str(e)
             }  
+
     # ==========================================
     # 유틸리티 메서드
     # ==========================================
