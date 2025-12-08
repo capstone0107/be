@@ -21,7 +21,7 @@ class KnowledgeCard(Base):
     source_url = Column(String(500), nullable=False)
     title = Column(String(200), nullable=False)
     summary = Column(Text, nullable=False)
-    
+    question = Column(Text, nullable=True)
     # 메타데이터
     model_version = Column(String(50), nullable=True)  # 사용된 AI 모델 버전
     

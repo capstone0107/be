@@ -17,6 +17,12 @@ from models.orm import User as DBUser
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 
+print("=" * 50)
+print("BOOKMARK ROUTER LOADED!")
+print("=" * 50)
+logger.warning("BOOKMARK ROUTER LOADED - THIS SHOULD APPEAR IN LOGS")
+
+
 
 @router.post("", response_model=BookmarkResponse, status_code=status.HTTP_201_CREATED)
 async def create_bookmark(
@@ -26,20 +32,21 @@ async def create_bookmark(
 ):
     """
     새로운 북마크 생성
-    
-    - **knowledge_id**: 지식 카드 식별자 (예: "conv-123-msg-5")
-    - **source_url**: 출처 URL
-    - **title**: 제목
-    - **summary**: 요약
-    - **model_version**: AI 모델 버전 (선택)
     """
     try:
+        # ⭐ 디버깅: 받은 데이터 출력
+        logger.info(f"=== Bookmark Request ===")
+        logger.info(f"User ID: {current_user.id}")
+        logger.info(f"Request data: {request.dict()}")
+        logger.info(f"========================")
+        
         bookmark = bookmark_service.create_bookmark(
             user_id=current_user.id,
             knowledge_id=request.knowledge_id,
             source_url=request.source_url,
             title=request.title,
             summary=request.summary,
+            question=request.question,
             model_version=request.model_version,
             db=db
         )
@@ -47,9 +54,9 @@ async def create_bookmark(
         return BookmarkResponse.model_validate(bookmark)
         
     except Exception as e:
-        logger.error(f"Error creating bookmark: {e}")
+        logger.error(f"Error creating bookmark: {e}", exc_info=True)  # ⭐ 스택 트레이스 포함
         raise HTTPException(status_code=500, detail=str(e))
-
+    
 
 @router.get("", response_model=BookmarkListResponse)
 async def get_bookmarks(

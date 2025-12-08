@@ -18,6 +18,7 @@ class BookmarkService:
         source_url: str,
         title: str,
         summary: str,
+        question: Optional[str],
         model_version: Optional[str],
         db: Session
     ) -> KnowledgeCard:
@@ -54,6 +55,7 @@ class BookmarkService:
                 source_url=source_url,
                 title=title,
                 summary=summary,
+                question=question,
                 model_version=model_version
             )
             

@@ -9,6 +9,7 @@ class BookmarkCreateRequest(BaseModel):
     source_url: str
     title: str
     summary: str
+    question: Optional[str] = None
     model_version: Optional[str] = None
 
 class BookmarkUpdateRequest(BaseModel):
@@ -27,6 +28,7 @@ class BookmarkResponse(BaseModel):
     summary: str
     model_version: Optional[str]
     created_at: datetime
+    question: Optional[str] = None
     
     model_config = {
         "from_attributes": True
