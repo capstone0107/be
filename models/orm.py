@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, func
+from sqlalchemy import Column, Integer, String, DateTime, Text, func
 from database import Base
 from sqlalchemy.dialects.mysql import JSON
 
@@ -36,3 +36,17 @@ class Quiz(Base):
 
     def __repr__(self):
         return f"<Quiz(id={self.id}, question='{self.question}')>"
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    source_title = Column(String(200), nullable=False)
+    source_url = Column(String(500), nullable=False)
+    related_question = Column(String(500), nullable=False)
+
+    def __repr__(self):
+        return f"<Document(id={self.id}, title='{self.title}')>"
