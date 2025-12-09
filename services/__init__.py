@@ -19,4 +19,6 @@ __all__ = [
     "focus_service", 
     "background_save_service",
     "bookmark_service"
+    "quiz_service"
+    "document_service"
 ]

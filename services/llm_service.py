@@ -28,6 +28,10 @@ class QuizData(BaseModel):
     correct_answer: int
     explanation: str
 
+class DocumentData(BaseModel):
+    """도큐먼트 데이터 모델"""
+    title: str
+    content: str
 
 class LLMService:
     def __init__(self):
@@ -123,6 +127,92 @@ class LLMService:
             return None
         except Exception as e:
             logger.error(f"퀴즈 생성 오류: {e}")
+            return None
+    
+    def generate_document(
+        self,
+        title: str,
+        summary: str,
+        source_url: str,
+        user_question: str
+    ) -> Optional[DocumentData]:
+        """
+        북마크 정보를 기반으로 학습 도큐먼트 생성
+        """
+        try:
+            system_prompt = """
+    당신은 학습 자료를 생성하는 AI입니다.
+
+    주어진 정보와 웹 검색을 통해 해당 주제에 대한 상세한 학습 문서를 작성하세요.
+
+    응답 규칙:
+    1. 반드시 순수한 JSON 형식으로만 응답하세요.
+    2. 마크다운 코드 블록(```json 또는 ```)을 사용하지 마세요.
+    3. title은 학습 문서의 제목입니다.
+    4. content는 마크다운 형식의 상세한 학습 내용입니다.
+    5. content에는 개념 설명, 예시, 주의사항 등을 포함하세요.
+    6. 출처의 내용을 바탕으로 정확한 정보를 제공하세요.
+
+    응답 형식:
+    {
+        "title": "학습 문서 제목",
+        "content": "## 개요\\n\\n내용...\\n\\n### 세부 내용\\n\\n..."
+    }
+    """
+
+            user_prompt = f"""
+    다음 정보를 바탕으로 학습 문서를 생성해주세요.
+    출처 URL을 검색해서 정확한 정보를 확인하고 작성하세요.
+
+    [사용자가 했던 질문]
+    {user_question}
+
+    [출처 제목]
+    {title}
+
+    [내용 요약]
+    {summary}
+
+    [출처 URL]
+    {source_url}
+    """
+
+            response = self.client.chat.completions.create(
+                model=self.model,  # gpt-4o-search-preview
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+            )
+
+            content = response.choices[0].message.content
+            
+            if not content or not content.strip():
+                logger.error("도큐먼트 생성: 빈 응답")
+                return None
+
+            # 마크다운 코드 블록 제거
+            content = content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            elif content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+            parsed = json.loads(content)
+            
+            return DocumentData(
+                title=parsed["title"],
+                content=parsed["content"]
+            )
+
+        except json.JSONDecodeError as e:
+            logger.error(f"도큐먼트 JSON 파싱 오류: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"도큐먼트 생성 오류: {e}")
             return None
         
     def generate_prompt(self, user_query: str) -> List[Dict]:
