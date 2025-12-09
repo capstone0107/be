@@ -8,7 +8,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed, before_log, after_lo
 from middleware.auth import AuthMiddleware
 
 from database import engine, Base 
-from routers import query, admin, analysis, search, user, graph, focus, bookmark, quiz
+from routers import query, admin, analysis, search, user, graph, focus, bookmark, quiz, document
 from services import langchain_service
 
 # Configure logging
@@ -51,6 +51,7 @@ app.include_router(user.router)
 app.include_router(focus.router)
 app.include_router(bookmark.router) 
 app.include_router(quiz.router)
+app.include_router(document.router)
 
 @app.on_event("startup")
 async def startup_event():

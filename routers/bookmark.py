@@ -12,6 +12,7 @@ from models.bookmark import (
 )
 from services.bookmark_service import bookmark_service
 from services.quiz_service import quiz_service
+from services.document_service import document_service
 from routers.user import get_current_user
 from models.orm import User as DBUser
 
@@ -47,9 +48,19 @@ async def create_bookmark(
             db=db
         )
         
-        # 2. 퀴즈 생성 백그라운드 태스크 추가
+        # 2. 퀴즈 생성 백그라운드 태스크
         background_tasks.add_task(
             create_quiz_background,
+            current_user.id,
+            request.title,
+            request.summary or "",
+            request.source_url,
+            request.question or "기타"
+        )
+        
+        # 3. 도큐먼트 생성 백그라운드 태스크
+        background_tasks.add_task(
+            create_document_background,
             current_user.id,
             request.title,
             request.summary or "",
@@ -91,6 +102,36 @@ def create_quiz_background(
         logger.error(f"Background quiz creation error: {e}")
     finally:
         db.close()
+
+def create_document_background(
+    user_id: int,
+    title: str,
+    summary: str,
+    source_url: str,
+    user_question: str
+):
+    """백그라운드에서 도큐먼트 생성"""
+    from database import SessionLocal
+    
+    db = SessionLocal()
+    try:
+        document = document_service.create_document(
+            user_id=user_id,
+            title=title,
+            summary=summary,
+            source_url=source_url,
+            user_question=user_question,
+            db=db
+        )
+        if document:
+            logger.info(f"Document auto-created in background: id={document.id}")
+        else:
+            logger.warning("Background document creation failed")
+    except Exception as e:
+        logger.error(f"Background document creation error: {e}")
+    finally:
+        db.close()
+
 
 @router.get("", response_model=BookmarkListResponse)
 async def get_bookmarks(
