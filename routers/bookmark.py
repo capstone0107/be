@@ -11,8 +11,11 @@ from models.bookmark import (
     BookmarkListResponse
 )
 from services.bookmark_service import bookmark_service
+from services.quiz_service import quiz_service
 from routers.user import get_current_user
 from models.orm import User as DBUser
+
+from fastapi import BackgroundTasks
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
@@ -28,18 +31,11 @@ logger.warning("BOOKMARK ROUTER LOADED - THIS SHOULD APPEAR IN LOGS")
 async def create_bookmark(
     request: BookmarkCreateRequest,
     current_user: Annotated[DBUser, Depends(get_current_user)],
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
-    """
-    새로운 북마크 생성
-    """
     try:
-        # ⭐ 디버깅: 받은 데이터 출력
-        logger.info(f"=== Bookmark Request ===")
-        logger.info(f"User ID: {current_user.id}")
-        logger.info(f"Request data: {request.dict()}")
-        logger.info(f"========================")
-        
+        # 1. 북마크 생성
         bookmark = bookmark_service.create_bookmark(
             user_id=current_user.id,
             knowledge_id=request.knowledge_id,
@@ -51,12 +47,50 @@ async def create_bookmark(
             db=db
         )
         
+        # 2. 퀴즈 생성 백그라운드 태스크 추가
+        background_tasks.add_task(
+            create_quiz_background,
+            current_user.id,
+            request.title,
+            request.summary or "",
+            request.source_url,
+            request.question or "기타"
+        )
+        
         return BookmarkResponse.model_validate(bookmark)
         
     except Exception as e:
-        logger.error(f"Error creating bookmark: {e}", exc_info=True)  # ⭐ 스택 트레이스 포함
+        logger.error(f"Error creating bookmark: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+def create_quiz_background(
+    user_id: int,
+    title: str,
+    summary: str,
+    source_url: str,
+    user_question: str
+):
+    """백그라운드에서 퀴즈 생성"""
+    from database import SessionLocal
     
+    db = SessionLocal()
+    try:
+        quiz = quiz_service.create_quiz(
+            user_id=user_id,
+            title=title,
+            summary=summary,
+            source_url=source_url,
+            user_question=user_question,
+            db=db
+        )
+        if quiz:
+            logger.info(f"Quiz auto-created in background: id={quiz.id}")
+        else:
+            logger.warning("Background quiz creation failed")
+    except Exception as e:
+        logger.error(f"Background quiz creation error: {e}")
+    finally:
+        db.close()
 
 @router.get("", response_model=BookmarkListResponse)
 async def get_bookmarks(

@@ -21,11 +21,109 @@ class LLMResponse(BaseModel):
     sources: List[Source]
 
 
+class QuizData(BaseModel):
+    """퀴즈 데이터 모델"""
+    question: str
+    options: List[str]
+    correct_answer: int
+    explanation: str
+
+
 class LLMService:
     def __init__(self):
         """LLM 서비스 초기화"""
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-search-preview")
+    
+    def generate_quiz(
+    self,
+    title: str,
+    summary: str,
+    source_url: str,
+    user_question: str
+) -> Optional[QuizData]:
+        """
+        북마크 정보를 기반으로 퀴즈 생성 (검색 모델 사용)
+        """
+        try:
+            system_prompt = """
+                당신은 학습 퀴즈를 생성하는 AI입니다.
+
+                주어진 정보와 웹 검색을 통해 정확한 4지선다 퀴즈를 생성하세요.
+
+                응답 규칙:
+                1. 반드시 순수한 JSON 형식으로만 응답하세요.
+                2. 마크다운 코드 블록(```json 또는 ```)을 사용하지 마세요.
+                3. 문제는 주어진 내용을 이해했는지 확인할 수 있는 것이어야 합니다.
+                4. 선택지는 4개여야 하며, 그럴듯한 오답을 포함해야 합니다.
+                5. correct_answer는 정답의 인덱스입니다 (0, 1, 2, 3 중 하나).
+                6. explanation은 왜 그것이 정답인지 설명합니다.
+
+                응답 형식:
+                {
+                    "question": "퀴즈 문제",
+                    "options": ["선택지1", "선택지2", "선택지3", "선택지4"],
+                    "correct_answer": 0,
+                    "explanation": "정답에 대한 해설"
+                }
+            """
+
+            user_prompt = f"""
+                다음 정보를 바탕으로 퀴즈를 생성해주세요.
+                필요하다면 출처 URL을 검색해서 더 정확한 정보를 확인하세요.
+
+                [사용자가 했던 질문]
+                {user_question}
+
+                [출처 제목]
+                {title}
+
+                [내용 요약]
+                {summary}
+
+                [출처 URL]
+                {source_url}
+            """
+
+            response = self.client.chat.completions.create(
+                model=self.model,  # gpt-4o-search-preview 사용
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+            )
+
+            content = response.choices[0].message.content
+            
+            if not content or not content.strip():
+                logger.error("퀴즈 생성: 빈 응답")
+                return None
+
+            # 마크다운 코드 블록 제거
+            content = content.strip()
+            if content.startswith("```json"):
+                content = content[7:]
+            elif content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+            parsed = json.loads(content)
+            
+            return QuizData(
+                question=parsed["question"],
+                options=parsed["options"],
+                correct_answer=parsed["correct_answer"],
+                explanation=parsed["explanation"]
+            )
+
+        except json.JSONDecodeError as e:
+            logger.error(f"퀴즈 JSON 파싱 오류: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"퀴즈 생성 오류: {e}")
+            return None
         
     def generate_prompt(self, user_query: str) -> List[Dict]:
         """
