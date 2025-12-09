@@ -8,6 +8,8 @@ import services.user_service as user_service
 from services.focus_service import focus_service
 from services.background_save_service import background_save_service
 from services.bookmark_service import bookmark_service
+from services.quiz_service import quiz_service
+from services.document_service import document_service
 
 __all__ = [
     "langchain_service", 
@@ -18,7 +20,7 @@ __all__ = [
     "user_service", 
     "focus_service", 
     "background_save_service",
-    "bookmark_service"
-    "quiz_service"
+    "bookmark_service",
+    "quiz_service",
     "document_service"
 ]
