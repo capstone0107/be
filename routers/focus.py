@@ -14,7 +14,7 @@ from services.focus_service import focus_service
 from models.conversation_orm import Conversation, Message, Focus
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/focus", tags=["focus"])
+router = APIRouter(prefix="/focus", tags=["focus"])
 
 
 # ==========================================
@@ -131,7 +131,7 @@ async def save_conversation_with_focuses(
 # ============================================
 @router.get("/all")
 async def get_all_focuses_grouped(
-    request: Request,  # ⭐ Request 추가
+    request: Request,  
     limit: int = 20, 
     offset: int = 0, 
     db: Session = Depends(get_db)
